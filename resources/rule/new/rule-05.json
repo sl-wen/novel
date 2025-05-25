@@ -1,0 +1,50 @@
+{
+  "id": 5,
+  "name": "新天禧小说",
+  "url": "https://www.tianxibook.com/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "https://www.sososhu.com/?q=%s&site=xtxxs",
+    "method": "get",
+    "data": "{}",
+    "list": "body > div.wrap > div > div > div",
+    "name": "dl > dt > a",
+    "author": "dl > dt > span",
+    "category": "",
+    "latest": "",
+    "update": "",
+    "status": "",
+    "word_count": ""
+  },
+  "book": {
+    "name": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": "meta[property=\"og:description\"]",
+    "category": "meta[property=\"og:novel:category\"]",
+    "cover": "meta[property=\"og:image\"]",
+    "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+    "update": "meta[property=\"og:novel:update_time\"]",
+    "status": "meta[property=\"og:novel:status\"]",
+    "word_count": ""
+  },
+  "toc": {
+    "list": "#content_1 > a",
+    "title": "",
+    "url": "https://www.tianxibook.com/xiaoshuo/%s/",
+    "has_pages": true,
+    "next_page": "#indexselect > option"
+  },
+  "chapter": {
+    "title": "#wrapper > article > h1",
+    "content": "#booktxt",
+    "ad_patterns": [
+      "首发网址.+。",
+      "\\(本章完\\)",
+      "一秒记住【新天禧小说\\s*】手机用户输入地址：www\\s*\\.xtxxs\\s*\\.com",
+      "支持（新天禧小说\\s*）把本站分享那些需要的小伙伴！找不到书请留言！",
+      "搜.+免费看精品文学"
+    ]
+  }
+}

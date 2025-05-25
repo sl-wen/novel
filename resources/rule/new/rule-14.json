@@ -1,0 +1,46 @@
+{
+  "id": 14,
+  "name": "略更网",
+  "url": "https://www.luegeng.com/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "https://www.luegeng.com/search/?searchkey=%s",
+    "method": "get",
+    "data": "{}",
+    "list": ".content > dl",
+    "name": "dt > a",
+    "author": "dd > a",
+    "category": "",
+    "latest": "",
+    "update": "",
+    "status": "dd:nth-child(4) > span:nth-child(2)",
+    "word_count": "dd:nth-child(4) > span:nth-child(3)"
+  },
+  "book": {
+    "name": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": "meta[property=\"og:description\"]",
+    "category": "meta[property=\"og:novel:category\"]",
+    "cover": ".left > div > a > img",
+    "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+    "update": "meta[property=\"og:novel:update_time\"]",
+    "status": "meta[property=\"og:novel:status\"]",
+    "word_count": ""
+  },
+  "toc": {
+    "list": ".all > ul > li > a",
+    "title": "",
+    "url": "",
+    "has_pages": false,
+    "next_page": ""
+  },
+  "chapter": {
+    "title": ".active",
+    "content": "#booktxt",
+    "ad_patterns": [
+      "\\(本章完\\)"
+    ]
+  }
+}

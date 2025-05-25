@@ -1,0 +1,48 @@
+{
+  "id": 4,
+  "name": "鸟书网",
+  "url": "http://www.99xs.info/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "http://www.99xs.info/read/search/",
+    "method": "post",
+    "data": "{searchkey: %s}",
+    "list": "div.wrap > div > div > div",
+    "name": "div.bookinfo > h4 > a",
+    "author": "div.bookinfo > div.author@js:r=r.replace('作者：', '');",
+    "category": "",
+    "latest": "div.bookinfo > div.update > a",
+    "update": "",
+    "status": "",
+    "word_count": ""
+  },
+  "book": {
+    "name": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": "meta[property=\"og:description\"]",
+    "category": "meta[property=\"og:novel:category\"]",
+    "cover": "meta[property=\"og:image\"]",
+    "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+    "update": "meta[property=\"og:novel:update_time\"]",
+    "status": "meta[property=\"og:novel:status\"]",
+    "word_count": ""
+  },
+  "toc": {
+    "list": "div.listmain > dl > dd > a",
+    "title": "",
+    "url": "",
+    "has_pages": false,
+    "next_page": ""
+  },
+  "chapter": {
+    "title": ".content > h1",
+    "content": "#content",
+    "ad_patterns": [
+      "请记住本书首发域名：.+。鸟书网手机版阅读网址：.+",
+      "7017k",
+      "\\(本章完\\)"
+    ]
+  }
+}

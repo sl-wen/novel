@@ -1,0 +1,47 @@
+{
+  "id": 15,
+  "name": "96读书",
+  "url": "https://www.96dushu.com/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "https://www.96dushu.com/modules/article/search.php",
+    "method": "post",
+    "data": "{searchkey: %s}",
+    "list": "#nr",
+    "name": "dd:nth-child(2) > h3 > a",
+    "author": "dd:nth-child(3) > span:nth-child(1)",
+    "category": "dt > span",
+    "latest": "dd:nth-child(5) > a",
+    "update": "dd:nth-child(2) > h3 > span",
+    "status": "dd:nth-child(3) > span:nth-child(2)",
+    "word_count": ""
+  },
+  "book": {
+    "name": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": "meta[property=\"og:description\"]",
+    "category": "meta[property=\"og:novel:category\"]",
+    "cover": "meta[property=\"og:image\"]",
+    "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+    "update": "meta[property=\"og:novel:update_time\"]",
+    "status": "meta[property=\"og:novel:status\"]",
+    "word_count": ""
+  },
+  "toc": {
+    "list": "#chapterList > li > a",
+    "title": "",
+    "url": "",
+    "has_pages": false,
+    "next_page": ""
+  },
+  "chapter": {
+    "title": "#mlfy_main_text > h1",
+    "content": "#content",
+    "ad_patterns": [
+      "\\((继续下一页",
+      "本章完)\\)"
+    ]
+  }
+}

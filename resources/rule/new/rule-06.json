@@ -1,0 +1,46 @@
+{
+  "id": 6,
+  "name": "全本小说网",
+  "url": "https://quanben5.com/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "https://quanben5.com/search.html/?keywords=%s&a=search.json&b=%s&c=book&callback=search",
+    "method": "get",
+    "data": "{}",
+    "list": ".pic_txt_list",
+    "name": "h3 > a",
+    "author": "p.info > span",
+    "category": "",
+    "latest": "",
+    "update": "",
+    "status": "",
+    "word_count": ""
+  },
+  "book": {
+    "name": "h3 > span",
+    "author": "body > div.row > div > div:nth-child(1) > div.pic_txt_list > p:nth-child(3) > span",
+    "intro": "body > div.row > div > div:nth-child(1) > div.description",
+    "category": "body > div.row > div > div:nth-child(1) > div.pic_txt_list > p:nth-child(4) > span",
+    "cover": "body > div.row > div > div:nth-child(1) > div.pic_txt_list > div > img",
+    "latest": "",
+    "update": "",
+    "status": "body > div.row > div > div:nth-child(1) > div.pic_txt_list > p:nth-child(5) > span",
+    "word_count": ""
+  },
+  "toc": {
+    "list": "ul > li > a",
+    "title": "",
+    "url": "https://quanben5.com/n/%s/xiaoshuo.html",
+    "has_pages": false,
+    "next_page": ""
+  },
+  "chapter": {
+    "title": ".content > h1",
+    "content": "#content",
+    "ad_patterns": [
+      "\\(本章完\\)"
+    ]
+  }
+}

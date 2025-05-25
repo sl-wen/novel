@@ -1,0 +1,46 @@
+{
+  "id": 13,
+  "name": "新笔趣阁6",
+  "url": "https://www.xbqg06.com/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "https://www.xbqg06.com/search/",
+    "method": "post",
+    "data": "{type: articlename, searchkey: %s}",
+    "list": ".container > div > div > ul > li",
+    "name": "span.s2 > a@js:r=r.length>15?r.substring(0,15)+\"...\":r;",
+    "author": "span.s4@js:r=r.length>10?r.substring(0,10)+\"...\":r;",
+    "category": "",
+    "latest": "span.s3 > a",
+    "update": "span.s5",
+    "status": "",
+    "word_count": ""
+  },
+  "book": {
+    "name": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": ".desc.m-desc",
+    "category": "meta[property=\"og:novel:category\"]",
+    "cover": ".imgbox > img",
+    "latest": "meta[property=\"og:novel:lastest_chapter_name\"]",
+    "update": "meta[property=\"og:novel:update_time\"]",
+    "status": "meta[property=\"og:novel:status\"]",
+    "word_count": ""
+  },
+  "toc": {
+    "list": ".row.row-section > div > div:nth-child(4) > ul > li > a",
+    "title": "",
+    "url": "",
+    "has_pages": true,
+    "next_page": "#indexselect > option"
+  },
+  "chapter": {
+    "title": ".reader-main > h1@js:r=r.replace(/（\\d+\\s*\\/\\s*\\d+）/, '');",
+    "content": "#content",
+    "ad_patterns": [
+      "\\(本章完\\)"
+    ]
+  }
+}

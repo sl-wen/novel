@@ -1,0 +1,48 @@
+{
+  "id": 10,
+  "name": "笔尖中文",
+  "url": "http://www.xbiquzw.net/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "http://www.xbiquzw.net/modules/article/search.php",
+    "method": "post",
+    "data": "{searchkey: %s}",
+    "list": "#wrapper > table > tbody > tr",
+    "name": "td:nth-child(1) > a",
+    "author": "td:nth-child(3)",
+    "category": "",
+    "latest": "td:nth-child(2)",
+    "update": "td:nth-child(5)",
+    "status": "",
+    "word_count": ""
+  },
+  "book": {
+    "name": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": "meta[property=\"og:description\"]",
+    "category": "meta[property=\"og:novel:category\"]",
+    "cover": "meta[property=\"og:image\"]",
+    "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+    "update": "meta[property=\"og:novel:update_time\"]",
+    "status": "",
+    "word_count": ""
+  },
+  "toc": {
+    "list": "#list > dl > dd > a",
+    "title": "",
+    "url": "",
+    "has_pages": false,
+    "next_page": ""
+  },
+  "chapter": {
+    "title": ".bookname > h1",
+    "content": "#content",
+    "ad_patterns": [
+      "<!--.*?-->",
+      "喜欢.+请大家收藏：.+",
+      "\\(本章完\\)"
+    ]
+  }
+}

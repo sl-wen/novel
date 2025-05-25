@@ -1,0 +1,48 @@
+{
+  "id": 11,
+  "name": "零点小说",
+  "url": "https://www.0xs.net/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "https://www.0xs.net/search.html?kw=%s",
+    "method": "get",
+    "data": "{}",
+    "list": ".result_list > ul > li > .book",
+    "name": ".name > a",
+    "author": ".author",
+    "category": ".type",
+    "latest": "",
+    "update": "",
+    "status": ".serial",
+    "word_count": ".count"
+  },
+  "book": {
+    "name": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": "meta[property=\"og:description\"]",
+    "category": "meta[property=\"og:novel:category\"]",
+    "cover": "meta[property=\"og:image\"]",
+    "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+    "update": "meta[property=\"og:novel:update_time\"]",
+    "status": "meta[property=\"og:novel:status\"]",
+    "word_count": ""
+  },
+  "toc": {
+    "list": ".catalog > div > ul > ul > li > a",
+    "title": "",
+    "url": "https://www.0xs.net/list/%s.html",
+    "has_pages": false,
+    "next_page": ""
+  },
+  "chapter": {
+    "title": ".title > h1@js:r=r.replace(/\\(\\d+\\/\\d+\\)/, '');",
+    "content": ".content",
+    "ad_patterns": [
+      "【[^】]+】小说免费阅读，请收藏[^【】]*【[^】]+】",
+      "本章未完，点击\\[下一页]继续阅读--",
+      "\\(本章完\\)"
+    ]
+  }
+}
