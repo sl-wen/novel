@@ -2,6 +2,8 @@ from fastapi import APIRouter, Query, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse, JSONResponse
 from typing import List, Optional
 import os
+import aiofiles
+import aiofiles.os # For potential future use, like background file deletion
 
 from app.models.search import SearchResult, SearchResponse
 from app.models.book import Book
@@ -29,7 +31,8 @@ async def search_novels(keyword: str = Query(..., description="搜索关键词�
             "data": results
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
+        # Global handler in main.py should log the details of e.
+        raise HTTPException(status_code=500, detail="An internal error occurred during the search operation.")
 
 
 @router.get("/detail")
@@ -46,7 +49,11 @@ async def get_novel_detail(url: str = Query(..., description="小说详情页URL
             "data": book
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取小说详情失败: {str(e)}")
+        # Global handler in main.py should log the details of e.
+        # Consider if novel_service.get_book_detail could return None for not found,
+        # then a specific check for `if book is None: raise HTTPException(404, ...)` would be better.
+        # Assuming for now that any failure, including not found, results in an exception from the service.
+        raise HTTPException(status_code=500, detail="An internal error occurred while fetching novel details.")
 
 
 @router.get("/toc")
@@ -63,7 +70,9 @@ async def get_novel_toc(url: str = Query(..., description="小说详情页URL"),
             "data": toc
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取小说目录失败: {str(e)}")
+        # Global handler in main.py should log the details of e.
+        # Similar to /detail, a specific None check for not found might be applicable.
+        raise HTTPException(status_code=500, detail="An internal error occurred while fetching novel table of contents.")
 
 
 @router.get("/download")
@@ -88,15 +97,25 @@ async def download_novel(background_tasks: BackgroundTasks,
         filename = f"{book.bookName}_{book.author}.{format}"
         
         # 返回文件流
+        async def file_iterator(file_path_str: str, chunk_size=8192):
+            async with aiofiles.open(file_path_str, "rb") as f:
+                while chunk := await f.read(chunk_size):
+                    yield chunk
+            # Optional: Clean up the file after streaming
+            # background_tasks.add_task(aiofiles.os.remove, file_path_str) # Requires aiofiles.os
+
         return StreamingResponse(
-            open(file_path, "rb"),
+            file_iterator(file_path), # file_path is already a string here
             media_type="application/octet-stream",
             headers={
-                "Content-Disposition": f"attachment; filename={filename}"
+                "Content-Disposition": f"attachment; filename=\"{filename}\"" # Added quotes around filename
             }
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"下载小说失败: {str(e)}")
+        # It's good practice to log the exception here
+        # import logging
+        # logging.exception("Failed to download novel") # Local logging is optional, main.py handles it.
+        raise HTTPException(status_code=500, detail="An internal error occurred during the download process.")
 
 
 @router.get("/sources")
@@ -112,4 +131,5 @@ async def get_sources():
             "data": sources
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取书源失败: {str(e)}")
+        # Global handler in main.py should log the details of e.
+        raise HTTPException(status_code=500, detail="An internal error occurred while fetching available sources.")

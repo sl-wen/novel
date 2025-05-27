@@ -14,6 +14,9 @@ from app.parsers.book_parser import BookParser
 from app.parsers.toc_parser import TocParser
 from app.parsers.chapter_parser import ChapterParser
 from app.utils.file import FileUtils
+import logging
+from ebooklib import epub
+from weasyprint import HTML, CSS
 
 
 class Crawler:
@@ -135,14 +138,34 @@ class Crawler:
     
     def _get_searchable_sources(self) -> List[Source]:
         """获取所有可搜索的书源
-        
+
         Returns:
             可搜索的书源列表
         """
-        # 这里应该实现从配置中获取所有可搜索的书源
-        # 目前仅返回默认书源
-        return [Source(self.config.DEFAULT_SOURCE_ID)]
-    
+        sources = []
+        rules_path = Path(self.config.RULES_PATH)
+        if not rules_path.is_dir():
+            logging.error(f"Rules path {rules_path} is not a directory.")
+            return sources
+
+        for rule_file in rules_path.glob("rule-*.json"):
+            source_id = rule_file.stem.split("-")[-1]
+            try:
+                source = Source(source_id)
+                # Ensure the source is searchable, if such a flag exists in rule
+                # For now, we assume all rules define searchable sources
+                # if source.rule.get("isSearchable", True): # Example check
+                sources.append(source)
+            except FileNotFoundError:
+                logging.error(f"Rule file for source_id {source_id} not found at {rule_file}")
+            except Exception as e:
+                logging.error(f"Failed to load source from {rule_file}: {e}")
+        
+        if not sources:
+            logging.warning(f"No searchable sources found in {rules_path}. Returning empty list.")
+
+        return sources
+
     def _sort_search_results(self, results: List[SearchResult], keyword: str) -> List[SearchResult]:
         """排序搜索结果
         
@@ -153,11 +176,29 @@ class Crawler:
         Returns:
             排序后的搜索结果列表
         """
-        # 这里应该实现根据关键词对搜索结果进行排序
-        # 目前仅返回原结果
-        return results
+        keyword_lower = keyword.lower()
+
+        def sort_key(result: SearchResult):
+            book_name_lower = result.bookName.lower()
+            author_lower = result.author.lower() if result.author else ""
+
+            if keyword_lower == book_name_lower:
+                return (0, book_name_lower)  # Exact book name match
+            if keyword_lower in book_name_lower:
+                return (1, book_name_lower)  # Keyword in book name
+            if author_lower and keyword_lower == author_lower:
+                return (2, author_lower)  # Exact author match
+            if author_lower and keyword_lower in author_lower:
+                return (3, author_lower)  # Keyword in author
+            return (4, book_name_lower)  # No match or partial match, sort by book name
+
+        # Create a new sorted list instead of sorting in-place if results is used elsewhere
+        # or if the original order of sub-priorities needs to be stable.
+        # Python's sort is stable, so items with the same primary key will maintain their relative order.
+        sorted_results = sorted(results, key=sort_key)
+        return sorted_results
     
-    def _generate_file(self, book: Book, chapters: List[Chapter], format: str, download_dir: Path) -> str:
+    async def _generate_file(self, book: Book, chapters: List[Chapter], format: str, download_dir: Path) -> str:
         """生成文件
         
         Args:
@@ -175,11 +216,11 @@ class Crawler:
         
         # 根据格式生成文件
         if format == "txt":
-            return self._generate_txt(book, chapters, file_path)
+            return await asyncio.to_thread(self._generate_txt, book, chapters, file_path)
         elif format == "epub":
-            return self._generate_epub(book, chapters, file_path)
+            return await asyncio.to_thread(self._generate_epub, book, chapters, file_path)
         elif format == "pdf":
-            return self._generate_pdf(book, chapters, file_path)
+            return await asyncio.to_thread(self._generate_pdf, book, chapters, file_path)
         else:
             raise ValueError(f"不支持的格式: {format}")
     
@@ -218,10 +259,70 @@ class Crawler:
         Returns:
             文件路径
         """
-        # 这里应该实现生成EPUB文件的逻辑
-        # 目前仅生成TXT文件代替
-        return self._generate_txt(book, chapters, file_path.with_suffix(".txt"))
-    
+        try:
+            epub_book = epub.EpubBook()
+
+            # Set Metadata
+            epub_book.set_identifier(f"{book.bookName}-{book.author}-{str(file_path.name)}")
+            epub_book.set_title(book.bookName)
+            epub_book.set_language('zh')  # Assuming Chinese, adjust if necessary
+            if book.author:
+                epub_book.add_author(book.author)
+            epub_book.add_metadata('DC', 'description', book.intro if book.intro else 'No description available')
+
+            # Sort chapters by order
+            # Ensure chapter.order is not None, provide a default if it can be
+            sorted_chapters = sorted(chapters, key=lambda c: c.order if c.order is not None else float('inf'))
+
+            epub_chapters = []
+            for i, chapter in enumerate(sorted_chapters):
+                # Use chapter.order if available and unique, otherwise use index as fallback for file_name
+                # Ensure chapter.order is an int if used directly in f-string formatting for numbers
+                order_for_filename = chapter.order if chapter.order is not None else i
+                
+                # Ensure content is not None
+                chapter_content = chapter.content if chapter.content is not None else ""
+                
+                epub_chap = epub.EpubHtml(
+                    title=chapter.title,
+                    file_name=f'chap_{order_for_filename:04d}.xhtml',
+                    lang='zh'
+                )
+                epub_chap.content = f"<h1>{chapter.title}</h1><p>{chapter_content.replace(chr(10), '<br/>')}</p>"
+                
+                epub_book.add_item(epub_chap)
+                epub_chapters.append(epub_chap)
+
+            # Define Table of Contents (TOC)
+            epub_book.toc = tuple(epub_chapters)
+
+            # Add Navigation Files
+            epub_book.add_item(epub.EpubNcx())
+            epub_book.add_item(epub.EpubNav())
+
+            # Define Spine
+            # The 'nav' item is standard for the navigation document.
+            # epub_book.spine = ['nav'] + epub_chapters # This order is typical
+            # Let ebooklib handle the default spine or set it explicitly if needed after understanding its behavior.
+            # For now, let's try with a common setup.
+            spine_items = ['nav']
+            spine_items.extend(epub_chapters)
+            epub_book.spine = spine_items
+
+
+            # Write the EPUB file
+            epub.write_epub(str(file_path), epub_book, {})
+            
+            logging.info(f"EPUB file generated successfully at {file_path}")
+            return str(file_path)
+
+        except Exception as e:
+            logging.error(f"Failed to generate EPUB file for {book.bookName} at {file_path}: {e}", exc_info=True)
+            # Depending on requirements, either re-raise or return an error indicator
+            # For now, returning a message, but raising might be better for the caller to handle.
+            # raise e 
+            return f"Error generating EPUB: {e}"
+
     def _generate_pdf(self, book: Book, chapters: List[Chapter], file_path: Path) -> str:
         """生成PDF文件
         
@@ -233,6 +334,63 @@ class Crawler:
         Returns:
             文件路径
         """
-        # 这里应该实现生成PDF文件的逻辑
-        # 目前仅生成TXT文件代替
-        return self._generate_txt(book, chapters, file_path.with_suffix(".txt"))
+        try:
+            # Ensure chapters are sorted
+            sorted_chapters = sorted(chapters, key=lambda c: c.order if c.order is not None else float('inf'))
+
+            # Generate HTML Content
+            html_content = f"<html><head><meta charset='UTF-8'><title>{book.bookName}</title>"
+            # Basic CSS for better layout and potential font handling.
+            # Using a generic sans-serif font for now.
+            html_content += """
+            <style>
+                body { font-family: sans-serif; line-height: 1.6; }
+                h1, h2, h3 { text-align: center; margin-bottom: 0.5em; }
+                h1 { font-size: 2em; }
+                h2 { font-size: 1.5em; color: #333; }
+                h3 { font-size: 1.2em; color: #555; margin-top: 2em; }
+                p { text-indent: 2em; margin-bottom: 1em; }
+                .intro { font-style: italic; color: #666; }
+                hr { border: 0; border-top: 1px solid #eee; margin: 2em 0; }
+            </style>
+            """
+            html_content += "</head><body>"
+            
+            html_content += f"<h1>{book.bookName}</h1>"
+            if book.author:
+                html_content += f"<h2>{book.author}</h2>"
+            
+            if book.intro:
+                intro_html = book.intro.replace(chr(10), "<br/>")
+                html_content += f"<p class='intro'><strong>简介:</strong> {intro_html}</p><hr/>"
+
+            for chapter in sorted_chapters:
+                chap_title = chapter.title if chapter.title is not None else "Untitled Chapter"
+                chap_content = chapter.content if chapter.content is not None else ""
+                
+                html_content += f"<h3>{chap_title}</h3>"
+                # Replace newlines with <br/> for HTML display
+                content_html = chap_content.replace(chr(10), "<br/>")
+                html_content += f"<p>{content_html}</p><hr/>"
+            
+            html_content += "</body></html>"
+
+            # Convert HTML to PDF
+            html_doc = HTML(string=html_content)
+            
+            # Attempt without custom fonts first as per instructions.
+            # If specific character sets (e.g., CJK) are an issue, stylesheets with font declarations would be needed.
+            # For example:
+            # cjk_css = CSS(string='''
+            #     @font-face { font-family: "Noto Sans CJK SC"; src: url("https://fonts.gstatic.com/s/notosanscjksc/v27/ নজরpVZsdPWs3hvX7q1wYdDBGMmQ.otf"); } 
+            #     body { font-family: "Noto Sans CJK SC", sans-serif; }
+            # ''')
+            # html_doc.write_pdf(str(file_path), stylesheets=[cjk_css])
+            html_doc.write_pdf(str(file_path))
+            
+            logging.info(f"PDF file generated successfully at {file_path}")
+            return str(file_path)
+
+        except Exception as e:
+            logging.error(f"Failed to generate PDF file for {book.bookName} at {file_path}: {e}", exc_info=True)
+            return f"Error generating PDF: {e}"
