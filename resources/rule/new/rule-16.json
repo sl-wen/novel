@@ -11,7 +11,7 @@
     "data": "{}",
     "list": ".container > div",
     "name": "div > h3 > a",
-    "author": "div > p:nth-child(3)@js:r=r.replaceAll('作者：', '');",
+    "author": "div > p:nth-child(3)",
     "category": "",
     "latest": "div > ul > li:nth-child(1) > a",
     "update": "div > ul > li:nth-child(1) > i",
@@ -20,7 +20,7 @@
   },
   "book": {
     "name": ".item > div > h1 > a",
-    "author": ".item > div > p:nth-child(3) > a@js:r=r.replaceAll('作者：', '');",
+    "author": ".item > div > p:nth-child(3) > a",
     "intro": "//div[@class='des bb'][1]",
     "category": ".item > div > p:nth-child(2) > span:nth-child(2)",
     "cover": ".item > a > img",

@@ -12,3 +12,4 @@ weasyprint>=59.0  # 用于PDF生成
 ebooklib>=0.17.1  # 用于EPUB生成
 asyncio>=3.4.3
 lxml>=4.9.2
+httpx==0.27.0

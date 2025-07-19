@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  novel-api:
+    build: .
+    container_name: novel-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./downloads:/app/downloads
+      - ./logs:/app/logs
+      - ./resources:/app/resources
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - DEBUG=false
+    networks:
+      - novel-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  nginx:
+    image: nginx:alpine
+    container_name: novel-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./downloads:/var/www/downloads:ro
+    depends_on:
+      - novel-api
+    networks:
+      - novel-network
+
+networks:
+  novel-network:
+    driver: bridge 

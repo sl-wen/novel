@@ -1,0 +1,158 @@
+name: Deploy Novel Search API
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-dev python3-pip python3-venv
+        sudo apt-get install -y build-essential libssl-dev libffi-dev
+        # 安装WeasyPrint依赖
+        sudo apt-get install -y libcairo2-dev libpango1.0-dev libgdk-pixbuf2.0-dev libffi-dev shared-mime-info
+        sudo apt-get install -y libgirepository1.0-dev
+        sudo apt-get install -y libgobject-2.0-0
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run tests
+      run: |
+        python -m pytest tests/ -v
+        
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.SERVER_PASSWORD }}
+        port: 22
+        script: |
+          # 进入项目目录
+          cd /var/www/novel-api
+          
+          # 拉取最新代码
+          git pull origin main
+          
+          # 创建虚拟环境（如果不存在）
+          python3 -m venv venv
+          source venv/bin/activate
+          
+          # 安装依赖
+          pip install -r requirements.txt
+          
+          # 创建必要的目录
+          mkdir -p downloads
+          mkdir -p logs
+          
+          # 停止现有服务
+          sudo systemctl stop novel-api || true
+          
+          # 创建systemd服务文件
+          sudo tee /etc/systemd/system/novel-api.service > /dev/null <<EOF
+          [Unit]
+          Description=Novel Search API
+          After=network.target
+          
+          [Service]
+          Type=simple
+          User=www-data
+          Group=www-data
+          WorkingDirectory=/var/www/novel-api
+          Environment=PATH=/var/www/novel-api/venv/bin
+          ExecStart=/var/www/novel-api/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+          Restart=always
+          RestartSec=10
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          
+          # 重新加载systemd配置
+          sudo systemctl daemon-reload
+          
+          # 启动服务
+          sudo systemctl start novel-api
+          sudo systemctl enable novel-api
+          
+          # 检查服务状态
+          sudo systemctl status novel-api
+          
+    - name: Setup Nginx
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.SERVER_PASSWORD }}
+        port: 22
+        script: |
+          # 创建Nginx配置文件
+          sudo tee /etc/nginx/sites-available/novel-api > /dev/null <<EOF
+          server {
+              listen 80;
+              server_name api.yourdomain.com;  # 替换为您的域名
+              
+              location / {
+                  proxy_pass http://127.0.0.1:8000;
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+                  
+                  # 支持大文件下载
+                  proxy_max_temp_file_size 0;
+                  proxy_buffering off;
+                  proxy_request_buffering off;
+              }
+              
+              # 静态文件缓存
+              location ~* \.(txt|epub|pdf)$ {
+                  expires 1d;
+                  add_header Cache-Control "public, immutable";
+              }
+          }
+          EOF
+          
+          # 启用站点
+          sudo ln -sf /etc/nginx/sites-available/novel-api /etc/nginx/sites-enabled/
+          
+          # 测试Nginx配置
+          sudo nginx -t
+          
+          # 重启Nginx
+          sudo systemctl reload nginx
+          
+    - name: Health check
+      run: |
+        # 等待服务启动
+        sleep 30
+        
+        # 健康检查
+        curl -f http://${{ secrets.HOST }}:8000/ || exit 1
+        echo "API服务启动成功！" 

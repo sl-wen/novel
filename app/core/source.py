@@ -22,6 +22,8 @@ class Source:
             self.rule = rule_data
         else:
             self.rule = self._load_rule(source_id)
+        # 从rule中获取书源名称
+        self.name = self.rule.get('name', f'书源{source_id}')
         self._apply_default_rule()
 
     def _load_rule(self, source_id: int) -> Dict[str, Any]:

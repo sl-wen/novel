@@ -1,11 +1,15 @@
 import asyncio
 import aiohttp
-from typing import Optional
+import logging
+import re
+from typing import Optional, List
 from bs4 import BeautifulSoup
 
 from app.models.chapter import Chapter
 from app.core.source import Source
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class ChapterParser:
@@ -18,11 +22,12 @@ class ChapterParser:
             source: 书源对象
         """
         self.source = source
-        self.timeout = source.chapter_timeout or settings.DEFAULT_TIMEOUT
+        self.timeout = source.rule.get("chapter", {}).get("timeout", settings.DEFAULT_TIMEOUT)
         self.headers = {
             "User-Agent": settings.DEFAULT_HEADERS["User-Agent"],
-            "Referer": source.base_uri
+            "Referer": source.rule.get("url", "")
         }
+        self.chapter_rule = source.rule.get("chapter", {})
     
     async def parse(self, url: str, title: str, order: int) -> Chapter:
         """解析章节内容
@@ -38,7 +43,7 @@ class ChapterParser:
         # 发送请求获取章节内容页面
         html = await self._fetch_html(url)
         if not html:
-            print(f"<== 从 {self.source.name} 获取章节内容失败: {url}")
+            logger.error(f"书源 {self.source.rule.get('name', self.source.id)} 获取章节内容失败: {url}")
             return Chapter(url=url, title=title, content="获取章节内容失败", order=order)
         
         # 解析章节内容
@@ -63,48 +68,53 @@ class ChapterParser:
         Returns:
             HTML页面内容，失败返回None
         """
+        for attempt in range(settings.REQUEST_RETRY_TIMES):
+            try:
+                result = await self._fetch_html_single(url)
+                if result:
+                    return result
+                
+                if attempt == 0:
+                    logger.warning(f"第一次请求失败，准备重试: {url}")
+                    
+            except Exception as e:
+                if attempt < settings.REQUEST_RETRY_TIMES - 1:
+                    logger.warning(f"请求失败（第 {attempt + 1} 次），{settings.REQUEST_RETRY_DELAY} 秒后重试: {str(e)}")
+                    await asyncio.sleep(settings.REQUEST_RETRY_DELAY)
+                else:
+                    logger.error(f"请求最终失败（共 {settings.REQUEST_RETRY_TIMES} 次尝试）: {str(e)}")
+        
+        return None
+
+    async def _fetch_html_single(self, url: str) -> Optional[str]:
+        """获取HTML页面（单次请求）
+        
+        Args:
+            url: 页面URL
+            
+        Returns:
+            HTML页面内容，失败返回None
+        """
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=self.headers, timeout=self.timeout) as response:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=self.timeout),
+                connector=aiohttp.TCPConnector(limit=settings.MAX_CONCURRENT_REQUESTS)
+            ) as session:
+                async with session.get(url, headers=self.headers) as response:
                     if response.status == 200:
                         return await response.text()
                     else:
-                        print(f"<== 请求失败: {url}, 状态码: {response.status}")
+                        logger.error(f"请求失败: {url}, 状态码: {response.status}")
                         return None
-        except Exception as e:
-            # print(f"<== 从 {self.source.name} 获取章节内容失败: {url}") # 移除旧的打印语句
-            logger.error(f"书源 {self.source.rule.get('name', self.source.id)} 获取章节内容失败: {url}, 错误: {str(e)}") # 添加日志
+        except asyncio.TimeoutError:
+            logger.error(f"请求超时: {url}")
             return None
-
-    async def parse(self, url: str) -> Optional[Chapter]:
-        """解析章节内容
-        
-        Args:
-            url: 章节URL
-            title: 章节标题
-            order: 章节序号
-            
-        Returns:
-            章节对象
-        """
-        # 发送请求获取章节内容页面
-        html = await self._fetch_html(url)
-        if not html:
-            print(f"<== 从 {self.source.name} 获取章节内容失败: {url}")
-            return Chapter(url=url, title=title, content="获取章节内容失败", order=order)
-        
-        # 解析章节内容
-        content = self._parse_chapter_content(html)
-        
-        # 创建章节对象
-        chapter = Chapter(
-            url=url,
-            title=title,
-            content=content,
-            order=order
-        )
-        
-        return chapter
+        except aiohttp.ClientError as e:
+            logger.error(f"HTTP客户端错误: {url}, 错误: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"书源 {self.source.rule.get('name', self.source.id)} 获取章节内容失败: {url}, 错误: {str(e)}")
+            return None
     
     def _parse_chapter_content(self, html: str) -> str:
         """解析章节内容
@@ -116,49 +126,107 @@ class ChapterParser:
             章节内容
         """
         # 获取章节内容规则
-        content_selector = self.source.chapter_rule.get("content", "")
+        content_selector = self.chapter_rule.get("content", "")
+        title_selector = self.chapter_rule.get("title", "")
+        ad_patterns = self.chapter_rule.get("ad_patterns", [])
+        
+        if not content_selector:
+            logger.warning("章节规则中缺少content选择器")
+            return "无法获取章节内容：缺少内容选择器"
         
         # 解析HTML
         soup = BeautifulSoup(html, "html.parser")
         
         # 获取章节内容
-        content = ""
-        if content_selector:
-            content_element = soup.select_one(content_selector)
-            if content_element:
-                # 移除所有script和style标签
-                for script in content_element.find_all(["script", "style"]):
-                    script.decompose()
-                
-                # 获取文本内容
-                content = content_element.get_text("\n").strip()
-                
-                # 处理内容
-                content = self._process_content(content)
+        content_element = soup.select_one(content_selector)
+        if not content_element:
+            logger.warning(f"未找到章节内容元素: {content_selector}")
+            return "无法获取章节内容：内容元素不存在"
         
-        return content or "章节内容为空"
-    
-    def _process_content(self, content: str) -> str:
-        """处理章节内容
+        # 提取文本内容
+        content = content_element.get_text(separator='\n', strip=True)
         
-        Args:
-            content: 原始章节内容
-            
-        Returns:
-            处理后的章节内容
-        """
-        # 移除广告和无用内容
-        ad_patterns = self.source.chapter_rule.get("ad_patterns", [])
-        for pattern in ad_patterns:
-            import re
-            content = re.sub(pattern, "", content)
+        # 过滤广告和垃圾内容
+        content = self._filter_content(content, ad_patterns)
         
-        # 替换特定字符
-        content = content.replace("\r\n", "\n")
-        content = content.replace("\r", "\n")
-        
-        # 移除连续的空行
-        import re
-        content = re.sub(r'\n{3,}', '\n\n', content)
+        # 格式化内容
+        content = self._format_content(content)
         
         return content
+    
+    def _filter_content(self, content: str, ad_patterns: List[str]) -> str:
+        """过滤广告和垃圾内容
+        
+        Args:
+            content: 原始内容
+            ad_patterns: 广告正则表达式列表
+            
+        Returns:
+            过滤后的内容
+        """
+        if not content:
+            return content
+        
+        # 应用广告过滤规则
+        for pattern in ad_patterns:
+            try:
+                content = re.sub(pattern, '', content, flags=re.IGNORECASE)
+            except re.error:
+                logger.warning(f"无效的正则表达式: {pattern}")
+                continue
+        
+        # 移除常见的广告内容
+        common_ad_patterns = [
+            r'看最新章节请到.+',
+            r'本书最新章节请到.+',
+            r'更新最快的.+',
+            r'天才一秒记住.+',
+            r'天才壹秒記住.+',
+            r'一秒记住.+',
+            r'记住.+，为您提供精彩小说阅读。',
+            r'手机用户请访问.+',
+            r'手机版阅读网址.+',
+            r'推荐都市大神老施新书.+',
+            r'\(本章完\)',
+            r'章节错误[，,].*?举报',
+            r'内容严重缺失[，,].*?举报'
+        ]
+        
+        for pattern in common_ad_patterns:
+            try:
+                content = re.sub(pattern, '', content, flags=re.IGNORECASE)
+            except re.error:
+                continue
+        
+        return content
+    
+    def _format_content(self, content: str) -> str:
+        """格式化内容
+        
+        Args:
+            content: 原始内容
+            
+        Returns:
+            格式化后的内容
+        """
+        if not content:
+            return content
+        
+        # 移除多余的空行
+        content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)
+        
+        # 移除行首行尾空格
+        lines = [line.strip() for line in content.split('\n') if line.strip()]
+        
+        # 重新组合内容，每段之间加空行
+        formatted_lines = []
+        for line in lines:
+            if line:
+                formatted_lines.append(line)
+                formatted_lines.append('')  # 空行分隔段落
+        
+        # 移除最后的空行
+        if formatted_lines and formatted_lines[-1] == '':
+            formatted_lines.pop()
+        
+        return '\n'.join(formatted_lines)
