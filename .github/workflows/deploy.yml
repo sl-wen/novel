@@ -24,18 +24,58 @@ jobs:
         port: 22
         timeout: 30s
         command_timeout: 10m
+        script_stop: true
         script: |
+          # 安装系统依赖
+          sudo apt-get update
+          sudo apt-get install -y python3-venv python3-pip git
+          
           # 进入项目目录
           cd /var/www/novel-api
           
-          # 拉取最新代码
+          # 设置SSH环境变量
+          export HOME=/root
+          export SSH_AUTH_SOCK=""
+
+          # 检查可用的SSH密钥
+          SSH_KEY=""
+          if [ -f /root/.ssh/id_ed25519 ]; then
+            SSH_KEY="/root/.ssh/id_ed25519"
+            echo "找到 Ed25519 密钥: $SSH_KEY"
+          elif [ -f /root/.ssh/id_rsa ]; then
+            SSH_KEY="/root/.ssh/id_rsa"
+            echo "找到 RSA 密钥: $SSH_KEY"
+          elif [ -f ~/.ssh/id_ed25519 ]; then
+            SSH_KEY="~/.ssh/id_ed25519"
+            echo "找到用户 Ed25519 密钥: $SSH_KEY"
+          elif [ -f ~/.ssh/id_rsa ]; then
+            SSH_KEY="~/.ssh/id_rsa"
+            echo "找到用户 RSA 密钥: $SSH_KEY"
+          else
+            echo "❌ 未找到SSH密钥文件"
+          fi
+          
+          # 启动SSH Agent并添加密钥
+          if [ -n "$SSH_KEY" ]; then
+            echo "配置SSH Agent..."
+            eval "$(ssh-agent -s)"
+            
+            # 确保密钥权限正确
+            chmod 600 "$SSH_KEY" 2>/dev/null || echo "无法修改密钥权限"
+            
+            # 添加密钥到SSH Agent
+            ssh-add "$SSH_KEY" 2>/dev/null && echo "✅ SSH密钥已加载" || echo "⚠️ SSH密钥加载失败"
+          fi
+          
+          # 拉取最新代码（使用SSH）
           git pull origin main
           
           # 创建虚拟环境（如果不存在）
           python3 -m venv venv
-          source venv/bin/activate
           
-          # 安装依赖
+          # 激活虚拟环境并安装依赖
+          source venv/bin/activate
+          pip install --upgrade pip
           pip install -r requirements.txt
           
           # 创建必要的目录
@@ -76,12 +116,14 @@ jobs:
           sudo systemctl status novel-api
           
     - name: Setup Nginx
-      uses: appleboy/ssh-action@v0.1.5
+      uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
+        host: ${{ secrets.SERVER_IP }}
+        username: ${{ secrets.SERVER_USER }}
         password: ${{ secrets.SERVER_PASSWORD }}
         port: 22
+        timeout: 30s
+        command_timeout: 10m
         script: |
           # 创建Nginx配置文件
           sudo tee /etc/nginx/sites-available/novel-api > /dev/null <<EOF
@@ -125,5 +167,5 @@ jobs:
         sleep 30
         
         # 健康检查
-        curl -f http://${{ secrets.HOST }}:8000/ || exit 1
+        curl -f http://${{ secrets.SERVER_IP }}:8000/ || exit 1
         echo "API服务启动成功！" 
