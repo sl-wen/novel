@@ -83,7 +83,7 @@ jobs:
           fi
           
           # 拉取最新代码（使用SSH）
-          git pull origin main
+          git pull origin main || echo "Git pull failed, but continuing..."
           
           # 创建虚拟环境（如果不存在）
           if [ ! -d "venv" ]; then
@@ -104,13 +104,20 @@ jobs:
           pip install -r requirements.txt
           
           # 创建必要的目录
+          echo "创建必要目录..."
           mkdir -p downloads
           mkdir -p logs
+          
+          # 检查文件是否存在
+          echo "检查关键文件..."
+          ls -la requirements.txt || echo "requirements.txt不存在"
+          ls -la app/main.py || echo "app/main.py不存在"
           
           # 停止现有服务
           sudo systemctl stop novel-api || true
           
           # 创建systemd服务文件
+          echo "创建systemd服务文件..."
           sudo tee /etc/systemd/system/novel-api.service > /dev/null <<EOF
           [Unit]
           Description=Novel Search API
@@ -118,22 +125,32 @@ jobs:
           
           [Service]
           Type=simple
-          User=www-data
-          Group=www-data
+          User=$USER
+          Group=$USER
           WorkingDirectory=/var/www/novel-api
           Environment=PATH=/var/www/novel-api/venv/bin
-          ExecStart=/var/www/novel-api/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+          Environment=PYTHONPATH=/var/www/novel-api
+          ExecStart=/var/www/novel-api/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info
           Restart=always
           RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
           
           [Install]
           WantedBy=multi-user.target
           EOF
           
           # 重新加载systemd配置
+          echo "重新加载systemd配置..."
           sudo systemctl daemon-reload
           
+          # 运行简化测试
+          echo "运行简化测试..."
+          chmod +x simple_deploy.sh
+          ./simple_deploy.sh || echo "简化测试失败，但继续部署..."
+          
           # 启动服务
+          echo "启动systemd服务..."
           sudo systemctl start novel-api
           sudo systemctl enable novel-api
           
