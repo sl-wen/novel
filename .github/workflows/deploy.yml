@@ -30,8 +30,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3-venv python3-pip git
           
+          # 检查并创建项目目录
+          if [ ! -d "/var/www/novel-api" ]; then
+            echo "创建项目目录..."
+            sudo mkdir -p /var/www/novel-api
+            sudo chown $USER:$USER /var/www/novel-api
+          fi
+          
           # 进入项目目录
           cd /var/www/novel-api
+          echo "当前目录: $(pwd)"
+          
+          # 检查是否是Git仓库
+          if [ ! -d ".git" ]; then
+            echo "初始化Git仓库..."
+            git init
+            git remote add origin git@github.com:${{ github.repository }}.git
+          fi
           
           # 设置SSH环境变量
           export HOME=/root
@@ -71,11 +86,21 @@ jobs:
           git pull origin main
           
           # 创建虚拟环境（如果不存在）
-          python3 -m venv venv
+          if [ ! -d "venv" ]; then
+            echo "创建Python虚拟环境..."
+            python3 -m venv venv
+          else
+            echo "虚拟环境已存在"
+          fi
           
           # 激活虚拟环境并安装依赖
+          echo "激活虚拟环境..."
           source venv/bin/activate
+          
+          echo "升级pip..."
           pip install --upgrade pip
+          
+          echo "安装Python依赖..."
           pip install -r requirements.txt
           
           # 创建必要的目录
@@ -113,7 +138,20 @@ jobs:
           sudo systemctl enable novel-api
           
           # 检查服务状态
-          sudo systemctl status novel-api
+          echo "=== 检查服务状态 ==="
+          sudo systemctl status novel-api --no-pager
+          
+          # 检查端口是否监听
+          echo "=== 检查端口监听 ==="
+          netstat -tlnp | grep 8000 || echo "端口8000未监听"
+          
+          # 检查进程
+          echo "=== 检查进程 ==="
+          ps aux | grep uvicorn || echo "未找到uvicorn进程"
+          
+          # 检查日志
+          echo "=== 检查服务日志 ==="
+          sudo journalctl -u novel-api --no-pager -n 20
           
     - name: Setup Nginx
       uses: appleboy/ssh-action@v1.0.3
@@ -163,9 +201,32 @@ jobs:
           
     - name: Health check
       run: |
+        echo "=== 开始健康检查 ==="
+        
         # 等待服务启动
+        echo "等待服务启动..."
         sleep 30
         
-        # 健康检查
-        curl -f http://${{ secrets.SERVER_IP }}:8000/ || exit 1
-        echo "API服务启动成功！" 
+        # 检查服务状态
+        echo "检查服务状态..."
+        ssh -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} "sudo systemctl status novel-api --no-pager"
+        
+        # 检查端口
+        echo "检查端口监听..."
+        ssh -o ConnectTimeout=10 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} "netstat -tlnp | grep 8000 || echo '端口8000未监听'"
+        
+        # 尝试健康检查
+        echo "执行健康检查..."
+        for i in {1..5}; do
+          echo "尝试第 $i 次连接..."
+          if curl -f --connect-timeout 10 http://${{ secrets.SERVER_IP }}:8000/; then
+            echo "✅ API服务启动成功！"
+            exit 0
+          else
+            echo "❌ 第 $i 次连接失败"
+            sleep 10
+          fi
+        done
+        
+        echo "❌ 健康检查失败，服务可能未正常启动"
+        exit 1 
