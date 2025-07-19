@@ -85,26 +85,98 @@ jobs:
             ssh-add "$SSH_KEY" 2>/dev/null && echo "✅ SSH密钥已加载" || echo "⚠️ SSH密钥加载失败"
           fi
           
-          # 拉取最新代码（使用SSH）
-          git pull origin main || echo "Git pull failed, but continuing..."
+          # 拉取最新代码
+          echo "拉取最新代码..."
+          git config --global --add safe.directory /var/www/novel-api
+          OLD_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
           
-          # 创建虚拟环境（如果不存在）
-          if [ ! -d "venv" ]; then
-            echo "创建Python虚拟环境..."
-            python3 -m venv venv
+          # 设置Git SSH命令，指定密钥文件
+          if [ -n "$SSH_KEY" ]; then
+            export GIT_SSH_COMMAND="ssh -i $SSH_KEY -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o BatchMode=yes"
           else
-            echo "虚拟环境已存在"
+            export GIT_SSH_COMMAND="ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o BatchMode=yes"
           fi
           
+          # 尝试拉取代码
+          echo "使用Git SSH命令: $GIT_SSH_COMMAND"
+          if timeout 30 git fetch origin --prune; then
+            echo "✅ 代码拉取成功"
+            git reset --hard origin/main
+            git checkout main
+            git clean -fd
+            
+            NEW_COMMIT=$(git rev-parse HEAD)
+            if [ "$OLD_COMMIT" != "$NEW_COMMIT" ]; then
+              echo "✅ 发现新提交，从 $OLD_COMMIT 更新到 $NEW_COMMIT"
+            else
+              echo "ℹ️ 已是最新版本，无需更新"
+            fi
+          else
+            echo "❌ 代码拉取失败，使用本地版本继续部署"
+            echo "Git状态: $(git status --porcelain 2>/dev/null || echo '无法获取Git状态')"
+            echo "继续使用现有代码进行部署..."
+          fi
+          
+          echo "代码更新完成"
+          echo "最终提交: $(git log --oneline -n 1)"
+          
+          # 检查Python版本和venv模块
+          echo "=== 检查Python环境 ==="
+          python3 --version
+          python3 -c "import venv; print('venv模块可用')" || echo "❌ venv模块不可用"
+          
+          # 删除旧的虚拟环境（如果存在）
+          if [ -d "venv" ]; then
+            echo "删除旧的虚拟环境..."
+            rm -rf venv
+          fi
+          
+          # 创建虚拟环境
+          echo "=== 创建Python虚拟环境 ==="
+          python3 -m venv venv || {
+            echo "❌ 虚拟环境创建失败"
+            echo "尝试安装python3-venv..."
+            sudo apt-get install -y python3-venv
+            python3 -m venv venv || {
+              echo "❌ 虚拟环境创建仍然失败"
+              exit 1
+            }
+          }
+          
+          echo "✅ 虚拟环境创建成功"
+          
           # 激活虚拟环境并安装依赖
-          echo "激活虚拟环境..."
-          source venv/bin/activate
+          echo "=== 激活虚拟环境 ==="
+          source venv/bin/activate || {
+            echo "❌ 虚拟环境激活失败"
+            exit 1
+          }
           
-          echo "升级pip..."
-          pip install --upgrade pip
+          echo "✅ 虚拟环境已激活"
+          echo "Python路径: $(which python)"
+          echo "Pip路径: $(which pip)"
           
-          echo "安装Python依赖..."
-          pip install -r requirements.txt
+          echo "=== 升级pip ==="
+          pip install --upgrade pip || {
+            echo "❌ pip升级失败"
+            exit 1
+          }
+          
+          echo "=== 安装Python依赖 ==="
+          pip install -r requirements.txt || {
+            echo "❌ 依赖安装失败"
+            echo "尝试逐个安装关键依赖..."
+            pip install fastapi uvicorn aiohttp beautifulsoup4 pydantic
+            exit 1
+          }
+          
+          # 验证虚拟环境
+          echo "=== 验证虚拟环境 ==="
+          python -c "import fastapi, uvicorn, aiohttp, bs4, pydantic; print('✅ 所有关键依赖已安装')" || {
+            echo "❌ 关键依赖验证失败"
+            pip list
+            exit 1
+          }
           
           # 创建必要的目录
           echo "创建必要目录..."
@@ -120,7 +192,20 @@ jobs:
           sudo systemctl stop novel-api || true
           
           # 创建systemd服务文件
-          echo "创建systemd服务文件..."
+          echo "=== 创建systemd服务文件 ==="
+          CURRENT_DIR=$(pwd)
+          VENV_PATH="$CURRENT_DIR/venv"
+          
+          echo "当前目录: $CURRENT_DIR"
+          echo "虚拟环境路径: $VENV_PATH"
+          echo "Python可执行文件: $VENV_PATH/bin/python"
+          
+          # 验证虚拟环境中的Python
+          if [ ! -f "$VENV_PATH/bin/python" ]; then
+            echo "❌ 虚拟环境中的Python不存在"
+            exit 1
+          fi
+          
           sudo tee /etc/systemd/system/novel-api.service > /dev/null <<EOF
           [Unit]
           Description=Novel Search API
@@ -130,10 +215,11 @@ jobs:
           Type=simple
           User=$USER
           Group=$USER
-          WorkingDirectory=/var/www/novel-api
-          Environment=PATH=/var/www/novel-api/venv/bin
-          Environment=PYTHONPATH=/var/www/novel-api
-          ExecStart=/var/www/novel-api/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info
+          WorkingDirectory=$CURRENT_DIR
+          Environment=PATH=$VENV_PATH/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          Environment=PYTHONPATH=$CURRENT_DIR
+          Environment=PYTHONUNBUFFERED=1
+          ExecStart=$VENV_PATH/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info
           Restart=always
           RestartSec=10
           StandardOutput=journal
