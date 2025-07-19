@@ -40,6 +40,9 @@ jobs:
           # 进入项目目录
           cd /var/www/novel-api
           echo "当前目录: $(pwd)"
+
+          # 停止现有服务
+          sudo systemctl stop novel-api || true
           
           # 检查是否是Git仓库
           if [ ! -d ".git" ]; then
@@ -85,18 +88,6 @@ jobs:
           # 拉取最新代码（使用SSH）
           git pull origin main || echo "Git pull failed, but continuing..."
           
-          # 创建虚拟环境（如果不存在）
-          if [ ! -d "venv" ]; then
-            echo "创建Python虚拟环境..."
-            python3 -m venv venv
-          else
-            echo "虚拟环境已存在"
-          fi
-          
-          # 激活虚拟环境并安装依赖
-          echo "激活虚拟环境..."
-          source venv/bin/activate
-          
           echo "升级pip..."
           pip install --upgrade pip
           
@@ -113,41 +104,9 @@ jobs:
           ls -la requirements.txt || echo "requirements.txt不存在"
           ls -la app/main.py || echo "app/main.py不存在"
           
-          # 停止现有服务
-          sudo systemctl stop novel-api || true
-          
-          # 创建systemd服务文件
-          echo "创建systemd服务文件..."
-          sudo tee /etc/systemd/system/novel-api.service > /dev/null <<EOF
-          [Unit]
-          Description=Novel Search API
-          After=network.target
-          
-          [Service]
-          Type=simple
-          User=$USER
-          Group=$USER
-          WorkingDirectory=/var/www/novel-api
-          Environment=PATH=/var/www/novel-api/venv/bin
-          Environment=PYTHONPATH=/var/www/novel-api
-          ExecStart=/var/www/novel-api/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level info
-          Restart=always
-          RestartSec=10
-          StandardOutput=journal
-          StandardError=journal
-          
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-          
           # 重新加载systemd配置
           echo "重新加载systemd配置..."
           sudo systemctl daemon-reload
-          
-          # 运行简化测试
-          echo "运行简化测试..."
-          chmod +x simple_deploy.sh
-          ./simple_deploy.sh || echo "简化测试失败，但继续部署..."
           
           # 启动服务
           echo "启动systemd服务..."
@@ -169,52 +128,6 @@ jobs:
           # 检查日志
           echo "=== 检查服务日志 ==="
           sudo journalctl -u novel-api --no-pager -n 20
-          
-    - name: Setup Nginx
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.SERVER_IP }}
-        username: ${{ secrets.SERVER_USER }}
-        password: ${{ secrets.SERVER_PASSWORD }}
-        port: 22
-        timeout: 30s
-        command_timeout: 10m
-        script: |
-          # 创建Nginx配置文件
-          sudo tee /etc/nginx/sites-available/novel-api > /dev/null <<EOF
-          server {
-              listen 80;
-              server_name slwen.cn;  # 替换为您的域名
-              
-              location / {
-                  proxy_pass http://127.0.0.1:8000;
-                  proxy_set_header Host \$host;
-                  proxy_set_header X-Real-IP \$remote_addr;
-                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                  proxy_set_header X-Forwarded-Proto \$scheme;
-                  
-                  # 支持大文件下载
-                  proxy_max_temp_file_size 0;
-                  proxy_buffering off;
-                  proxy_request_buffering off;
-              }
-              
-              # 静态文件缓存
-              location ~* \.(txt|epub|pdf)$ {
-                  expires 1d;
-                  add_header Cache-Control "public, immutable";
-              }
-          }
-          EOF
-          
-          # 启用站点
-          sudo ln -sf /etc/nginx/sites-available/novel-api /etc/nginx/sites-enabled/
-          
-          # 测试Nginx配置
-          sudo nginx -t
-          
-          # 重启Nginx
-          sudo systemctl reload nginx
           
     - name: Health check
       run: |
