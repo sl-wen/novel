@@ -330,7 +330,7 @@ class NovelService:
         
         # 移除常见的标点符号和空格
         import re
-        text = re.sub(r'[，。！？；：""''（）【】《》\s\-_\[\]()]+', '', text)
+        text = re.sub(r'[，。！？；：""''（）【】《》\s\-_\[\]()]+', '', text, flags=re.UNICODE)
         
         return text
     
