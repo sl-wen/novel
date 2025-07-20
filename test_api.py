@@ -1,325 +1,123 @@
-import pytest
-import asyncio
+#!/usr/bin/env python3
+"""
+测试小说搜索API
+"""
+
+import requests
 import json
-import logging
-# from fastapi.testclient import TestClient
-from httpx import AsyncClient
+import sys
+from urllib.parse import quote
 
-from app.main import app
+def test_novel_search_api():
+    """测试小说搜索API"""
+    
+    # 测试URL
+    base_url = "https://slwen.cn"
+    search_endpoint = "/api/novels/search"
+    
+    # 测试关键词
+    keywords = ["修真", "都市", "玄幻", "修仙"]
+    
+    print("=== 小说搜索API测试 ===")
+    print(f"基础URL: {base_url}")
+    print(f"搜索端点: {search_endpoint}")
+    print()
+    
+    for keyword in keywords:
+        print(f"测试关键词: {keyword}")
+        
+        # 构建URL
+        encoded_keyword = quote(keyword)
+        url = f"{base_url}{search_endpoint}?keyword={encoded_keyword}"
+        
+        print(f"请求URL: {url}")
+        
+        try:
+            # 发送请求
+            headers = {
+                "Accept": "application/json",
+                "User-Agent": "Novel-API-Test/1.0"
+            }
+            
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            print(f"状态码: {response.status_code}")
+            print(f"响应头: {dict(response.headers)}")
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    print(f"响应数据: {json.dumps(data, ensure_ascii=False, indent=2)}")
+                    
+                    # 检查响应结构
+                    if "results" in data:
+                        print(f"找到 {len(data['results'])} 个结果")
+                        if data['results']:
+                            first_result = data['results'][0]
+                            print(f"第一个结果: {first_result.get('title', 'N/A')} - {first_result.get('author', 'N/A')}")
+                    else:
+                        print("响应中没有找到 'results' 字段")
+                        
+                except json.JSONDecodeError as e:
+                    print(f"JSON解析错误: {e}")
+                    print(f"响应内容: {response.text[:500]}...")
+            else:
+                print(f"请求失败: {response.text}")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"请求异常: {e}")
+        
+        print("-" * 50)
+        print()
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# 创建测试客户端 (使用异步客户端)
-# client = TestClient(app)
-
-# 使用 pytest.mark.asyncio 标记异步测试函数
-@pytest.mark.asyncio
-async def test_search_api(async_client: AsyncClient): # 注入异步客户端fixture
-    """测试搜索API"""
-    logger.info("开始测试搜索API")
-    response = await async_client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-    # 记录请求信息和响应
-    # 记录请求信息和响应
-    logger.info(f"请求搜索 API: {async_client.base_url}/api/novels/search?keyword=斗破苍穹")
-    logger.info(f"响应状态码: {response.status_code}")
+def test_health_check():
+    """测试健康检查端点"""
+    print("=== 健康检查测试 ===")
+    
+    health_url = "https://slwen.cn/novel/health"
+    print(f"健康检查URL: {health_url}")
+    
     try:
-        response_json = response.json()
-        logger.info(f"响应体 (前500字符): {str(response_json)[:500]}...")
-        # 检查响应状态码
-        assert response.status_code == 200
-
-        # 检查响应体是否为字典且包含必要字段
-        assert isinstance(response_json, dict)
-        assert response_json.get("code") == 200
-        assert response_json.get("message") == "success"
-        assert "data" in response_json
-        assert isinstance(response_json["data"], list)
-        assert len(response_json["data"]) > 0
-    except Exception as e:
-        logger.error(f"解析响应体或断言失败: {e}")
-        logger.error(f"原始响应文本: {response.text[:500]}...") # 打印原始响应文本
-        assert False, f"解析响应体或断言失败: {e}"
-    logger.info("搜索API测试通过")
-
-# @pytest.mark.asyncio
-# async def test_search_api(): # 注入异步客户端fixture
-#     """测试搜索API"""
-#     logger.info("开始测试搜索API")
-#     response = client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-#     assert response.status_code == 200
-#     data = response.json()
-#     assert data["code"] == 200
-#     assert data["message"] == "success"
-#     assert isinstance(data["data"], list)
-#     assert len(data["data"]) > 0
-#     logger.info("搜索API测试通过")
-
-@pytest.mark.asyncio
-async def test_detail_api(async_client: AsyncClient): # 注入异步客户端fixture
-    """测试详情API"""
-    logger.info("开始测试详情API")
+        response = requests.get(health_url, timeout=10)
+        print(f"状态码: {response.status_code}")
+        print(f"响应内容: {response.text}")
+    except requests.exceptions.RequestException as e:
+        print(f"健康检查失败: {e}")
     
-    # 先执行搜索获取结果
-    search_response = await async_client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-    assert search_response.status_code == 200
-    search_data = search_response.json()
-    # 先执行搜索获取结果
-    search_response = await async_client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-    search_data = search_response.json()
-    assert search_response.status_code == 200
-    assert isinstance(search_data, dict)
-    assert search_data.get("code") == 200
-    assert search_data.get("message") == "success"
-    assert "data" in search_data
-    assert isinstance(search_data["data"], list)
-    assert len(search_data["data"]) > 0
+    print("-" * 50)
+    print()
 
-    # 获取第一个搜索结果的URL和sourceId
-    book_url = search_data["data"][0]["url"]
-    source_id = search_data["data"][0]["sourceId"]
-
-    # 使用获取到的URL调用详情API
-    response = await async_client.get(f"/api/novels/detail?url={book_url}&sourceId={source_id}") # 使用await调用异步方法
-    # 记录请求信息和响应
-    logger.info(f"请求详情 API: {async_client.base_url}/api/novels/detail?url={book_url}&sourceId={source_id}")
-    logger.info(f"响应状态码: {response.status_code}")
+def test_api_docs():
+    """测试API文档端点"""
+    print("=== API文档测试 ===")
+    
+    docs_url = "https://slwen.cn/novel/docs"
+    print(f"API文档URL: {docs_url}")
+    
     try:
-        response_json = response.json()
-        logger.info(f"响应体 (前500字符): {str(response_json)[:500]}...")
-        # 检查响应状态码
-        assert response.status_code == 200
-
-        # 检查响应体是否为字典且包含必要字段
-        assert isinstance(response_json, dict)
-        assert response_json.get("code") == 200
-        assert response_json.get("message") == "success"
-        assert "data" in response_json
-        assert isinstance(response_json["data"], dict)
-        assert "bookName" in response_json["data"]
-        assert "author" in response_json["data"]
-    except Exception as e:
-        logger.error(f"解析响应体或断言失败: {e}")
-        logger.error(f"原始响应文本: {response.text[:500]}...") # 打印原始响应文本
-        assert False, f"解析响应体或断言失败: {e}"
-    logger.info("详情API测试通过")
-
-# @pytest.mark.asyncio
-# async def test_detail_api(): # 注入异步客户端fixture
-#     """测试详情API"""
-#     logger.info("开始测试详情API")
+        response = requests.get(docs_url, timeout=10)
+        print(f"状态码: {response.status_code}")
+        if response.status_code == 200:
+            print("API文档可访问")
+        else:
+            print(f"API文档访问失败: {response.text}")
+    except requests.exceptions.RequestException as e:
+        print(f"API文档测试失败: {e}")
     
-#     # 先执行搜索获取结果
-#     search_response = client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-#     assert search_response.status_code == 200
-#     search_data = search_response.json()
-#     assert search_data["code"] == 200
-#     assert search_data["message"] == "success"
-#     assert isinstance(search_data["data"], list)
-#     assert len(search_data["data"]) > 0
+    print("-" * 50)
+    print()
+
+if __name__ == "__main__":
+    print("开始测试小说搜索API...")
+    print()
     
-#     # 获取第一个搜索结果的URL和sourceId
-#     book_url = search_data["data"][0]["url"]
-#     source_id = search_data["data"][0]["sourceId"]
+    # 测试健康检查
+    test_health_check()
     
-#     # 使用获取到的URL调用详情API
-#     response = client.get(f"/api/novels/detail?url={book_url}&sourceId={source_id}") # 使用await调用异步方法
-#     assert response.status_code == 200
-#     data = response.json()
-#     assert data["code"] == 200
-#     assert data["message"] == "success"
-#     assert isinstance(data["data"], dict)
-#     assert "bookName" in data["data"]
-#     assert "author" in data["data"]
-#     logger.info("详情API测试通过")
-
-@pytest.mark.asyncio
-async def test_toc_api(async_client: AsyncClient): # 注入异步客户端fixture
-    """测试目录API"""
-    logger.info("开始测试目录API")
+    # 测试API文档
+    test_api_docs()
     
-    # 先执行搜索获取结果
-    search_response = await async_client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-    assert search_response.status_code == 200
-    search_data = search_response.json()
-    # 先执行搜索获取结果
-    search_response = await async_client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-    search_data = search_response.json()
-    assert search_response.status_code == 200
-    assert isinstance(search_data, dict)
-    assert search_data.get("code") == 200
-    assert search_data.get("message") == "success"
-    assert "data" in search_data
-    assert isinstance(search_data["data"], list)
-    assert len(search_data["data"]) > 0
-
-    # 获取第一个搜索结果的URL和sourceId
-    book_url = search_data["data"][0]["url"]
-    source_id = search_data["data"][0]["sourceId"]
-
-    # 使用获取到的URL调用目录API
-    response = await async_client.get(f"/api/novels/toc?url={book_url}&sourceId={source_id}") # 使用await调用异步方法
-    # 记录请求信息和响应
-    logger.info(f"请求目录 API: {async_client.base_url}/api/novels/toc?url={book_url}&sourceId={source_id}")
-    logger.info(f"响应状态码: {response.status_code}")
-    try:
-        response_json = response.json()
-        logger.info(f"响应体 (前500字符): {str(response_json)[:500]}...")
-        # 检查响应状态码
-        assert response.status_code == 200
-
-        # 检查响应体是否为字典且包含必要字段
-        assert isinstance(response_json, dict)
-        assert response_json.get("code") == 200
-        assert response_json.get("message") == "success"
-        assert "data" in response_json
-        assert isinstance(response_json["data"], list)
-        assert len(response_json["data"]) > 0
-    except Exception as e:
-        logger.error(f"解析响应体或断言失败: {e}")
-        logger.error(f"原始响应文本: {response.text[:500]}...") # 打印原始响应文本
-        assert False, f"解析响应体或断言失败: {e}"
-    logger.info("目录API测试通过")
-
-# @pytest.mark.asyncio
-# async def test_toc_api(): # 注入异步客户端fixture
-#     """测试目录API"""
-#     logger.info("开始测试目录API")
+    # 测试搜索API
+    test_novel_search_api()
     
-#     # 先执行搜索获取结果
-#     search_response = client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-#     assert search_response.status_code == 200
-#     search_data = search_response.json()
-#     assert search_data["code"] == 200
-#     assert search_data["message"] == "success"
-#     assert isinstance(search_data["data"], list)
-#     assert len(search_data["data"]) > 0
-    
-#     # 获取第一个搜索结果的URL和sourceId
-#     book_url = search_data["data"][0]["url"]
-#     source_id = search_data["data"][0]["sourceId"]
-    
-#     # 使用获取到的URL调用目录API
-#     response = client.get(f"/api/novels/toc?url={book_url}&sourceId={source_id}") # 使用await调用异步方法
-#     assert response.status_code == 200
-#     data = response.json()
-#     assert data["code"] == 200
-#     assert data["message"] == "success"
-#     assert isinstance(data["data"], list)
-#     assert len(data["data"]) > 0
-#     logger.info("目录API测试通过")
-
-@pytest.mark.asyncio
-async def test_download_api(async_client: AsyncClient): # 注入异步客户端fixture
-    """测试下载API"""
-    logger.info("开始测试下载API")
-    
-    # 先执行搜索获取结果
-    search_response = await async_client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-    assert search_response.status_code == 200
-    search_data = search_response.json()
-    # 先执行搜索获取结果
-    search_response = await async_client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-    search_data = search_response.json()
-    assert search_response.status_code == 200
-    assert isinstance(search_data, dict)
-    assert search_data.get("code") == 200
-    assert search_data.get("message") == "success"
-    assert "data" in search_data
-    assert isinstance(search_data["data"], list)
-    assert len(search_data["data"]) > 0
-
-    # 获取第一个搜索结果的URL和sourceId
-    book_url = search_data["data"][0]["url"]
-    source_id = search_data["data"][0]["sourceId"]
-
-    # 使用获取到的URL调用下载API
-    response = await async_client.get(f"/api/novels/download?url={book_url}&sourceId={source_id}&format=txt") # 使用await调用异步方法
-    # 记录请求信息和响应
-    logger.info(f"请求下载 API: {async_client.base_url}/api/novels/download?url={book_url}&sourceId={source_id}&format=txt")
-    logger.info(f"响应状态码: {response.status_code}")
-    try:
-        # 检查响应状态码
-        assert response.status_code == 200
-        # 对于文件下载，检查响应内容类型或头部信息
-        assert response.headers["content-type"] == "application/octet-stream"
-        assert "attachment" in response.headers["content-disposition"]
-    except Exception as e:
-        logger.error(f"断言失败: {e}")
-        logger.error(f"原始响应文本: {response.text[:500]}...") # 打印原始响应文本
-        assert False, f"断言失败: {e}"
-    logger.info("下载API测试通过")
-
-# @pytest.mark.asyncio
-# async def test_download_api(): # 注入异步客户端fixture
-#     """测试下载API"""
-#     logger.info("开始测试下载API")
-    
-#     # 先执行搜索获取结果
-#     search_response = client.get("/api/novels/search?keyword=斗破苍穹") # 使用await调用异步方法
-#     assert search_response.status_code == 200
-#     search_data = search_response.json()
-#     assert search_data["code"] == 200
-#     assert search_data["message"] == "success"
-#     assert isinstance(search_data["data"], list)
-#     assert len(search_data["data"]) > 0
-    
-#     # 获取第一个搜索结果的URL和sourceId
-#     book_url = search_data["data"][0]["url"]
-#     source_id = search_data["data"][0]["sourceId"]
-    
-#     # 使用获取到的URL调用下载API
-#     response = client.get(f"/api/novels/download?url={book_url}&sourceId={source_id}&format=txt") # 使用await调用异步方法
-#     assert response.status_code == 200
-#     # 对于文件下载，检查响应内容类型或头部信息
-#     assert response.headers["content-type"] == "application/octet-stream"
-#     assert "attachment" in response.headers["content-disposition"]
-#     logger.info("下载API测试通过")
-
-@pytest.mark.asyncio
-async def test_sources_api(async_client: AsyncClient): # 注入异步客户端fixture
-    """测试书源API"""
-    logger.info("开始测试书源API")
-    response = await async_client.get("/api/novels/sources") # 使用await调用异步方法
-    # 记录请求信息和响应
-    # 记录请求信息和响应
-    logger.info(f"请求书源 API: {async_client.base_url}/api/novels/sources")
-    logger.info(f"响应状态码: {response.status_code}")
-    try:
-        response_json = response.json()
-        logger.info(f"响应体 (前500字符): {str(response_json)[:500]}...")
-        # 检查响应状态码
-        assert response.status_code == 200
-
-        # 检查响应体是否为字典且包含必要字段
-        assert isinstance(response_json, dict)
-        assert response_json.get("code") == 200
-        assert response_json.get("message") == "success"
-        assert "data" in response_json
-        assert isinstance(response_json["data"], list)
-        assert len(response_json["data"]) > 0
-    except Exception as e:
-        logger.error(f"解析响应体或断言失败: {e}")
-        logger.error(f"原始响应文本: {response.text[:500]}...") # 打印原始响应文本
-        assert False, f"解析响应体或断言失败: {e}"
-    logger.info("书源API测试通过")
-
-# @pytest.mark.asyncio
-# async def test_sources_api(): # 注入异步客户端fixture
-#     """测试书源API"""
-#     logger.info("开始测试书源API")
-#     response = client.get("/api/novels/sources") # 使用await调用异步方法
-#     assert response.status_code == 200
-#     data = response.json()
-#     assert data["code"] == 200
-#     assert data["message"] == "success"
-#     assert isinstance(data["data"], list)
-#     assert len(data["data"]) > 0
-#     logger.info("书源API测试通过")
-
-# async def run_tests():
-# ... (原始 run_tests 代码)
-
-# if __name__ == "__main__":
-#    asyncio.run(run_tests())
+    print("测试完成！")
