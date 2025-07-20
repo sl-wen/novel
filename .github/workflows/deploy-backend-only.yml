@@ -1,0 +1,180 @@
+# 后端API部署工作流
+name: Deploy Backend API
+
+on:
+  # 在main分支有推送时触发后端部署
+  push:
+    branches: [ main ]
+  # 允许手动触发部署
+  workflow_dispatch:
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+    - name: Deploy Backend API to Server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SERVER_IP }} 
+        username: ${{ secrets.SERVER_USER }}
+        password: ${{ secrets.SERVER_PASSWORD }}
+        port: 22
+        timeout: 30s
+        command_timeout: 15m
+        script: |
+          echo "=== 开始部署后端API ==="
+          echo "时间: $(date)"
+          echo "用户: $(whoami)"
+          
+          # 进入后端项目目录
+          cd /var/www/novel
+          
+          # 显示当前状态
+          echo "当前分支: $(git branch --show-current)"
+          echo "当前提交: $(git log --oneline -n 1)"
+          
+          # 停止后端服务
+          echo "停止后端API服务..."
+          sudo systemctl stop novel-api || echo "后端服务已停止"
+          
+          # 检查SSH环境
+          echo "检查SSH环境..."
+          export HOME=/root
+          export SSH_AUTH_SOCK=""
+          
+          # 检查SSH密钥
+          SSH_KEY=""
+          if [ -f /root/.ssh/id_ed25519 ]; then
+            SSH_KEY="/root/.ssh/id_ed25519"
+          elif [ -f /root/.ssh/id_rsa ]; then
+            SSH_KEY="/root/.ssh/id_rsa"
+          fi
+          
+          if [ -n "$SSH_KEY" ]; then
+            eval "$(ssh-agent -s)"
+            chmod 600 "$SSH_KEY" 2>/dev/null
+            ssh-add "$SSH_KEY" 2>/dev/null && echo "✅ SSH密钥已加载"
+          fi
+          
+          # 修复GitHub SSH域名
+          CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
+          if [[ "$CURRENT_REMOTE" == *"ssh.github.com"* ]]; then
+            git remote set-url origin git@github.com:sl-wen/novel.git
+          fi
+          
+          # 拉取最新代码
+          echo "拉取最新后端代码..."
+          OLD_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+          
+          if [ -n "$SSH_KEY" ]; then
+            export GIT_SSH_COMMAND="ssh -i $SSH_KEY -o ConnectTimeout=10 -o StrictHostKeyChecking=no"
+          fi
+          
+          if timeout 30 git fetch origin --prune; then
+            git reset --hard origin/main
+            git checkout main
+            git clean -fd
+            NEW_COMMIT=$(git rev-parse HEAD)
+            echo "✅ 后端代码更新: $OLD_COMMIT -> $NEW_COMMIT"
+          else
+            echo "❌ 后端代码拉取失败，使用本地版本"
+          fi
+          
+          # 检查Python环境
+          echo "检查Python环境..."
+          if ! command -v python3 > /dev/null 2>&1; then
+            echo "❌ Python3未安装"
+            exit 1
+          fi
+          
+          if ! command -v pip3 > /dev/null 2>&1; then
+            echo "❌ pip3未安装"
+            exit 1
+          fi
+          
+          echo "Python版本: $(python3 --version)"
+          echo "pip版本: $(pip3 --version)"
+          
+          # 检查虚拟环境
+          if [ ! -d "venv" ]; then
+            echo "创建Python虚拟环境..."
+            python3 -m venv venv
+          fi
+          
+          # 激活虚拟环境
+          echo "激活虚拟环境..."
+          source venv/bin/activate
+          
+          # 升级pip
+          echo "升级pip..."
+          pip install --upgrade pip
+          
+          # 检查依赖更新
+          if git diff HEAD~1 --name-only | grep -q "requirements.txt"; then
+            echo "更新后端依赖..."
+            pip install -r requirements.txt
+          else
+            echo "检查后端依赖..."
+            pip install -r requirements.txt
+          fi
+          
+          # 数据库迁移（如果有）
+          if [ -f "manage.py" ]; then
+            echo "执行数据库迁移..."
+            python manage.py migrate --noinput || echo "数据库迁移完成"
+          fi
+          
+          # 收集静态文件（如果有）
+          if [ -f "manage.py" ]; then
+            echo "收集静态文件..."
+            python manage.py collectstatic --noinput || echo "静态文件收集完成"
+          fi
+          
+          # 启动后端服务
+          echo "启动后端API服务..."
+          sudo systemctl start novel-api
+          
+          # 等待服务启动
+          sleep 15
+          
+          if sudo systemctl is-active --quiet novel-api; then
+            echo "✅ 后端API服务启动成功"
+          else
+            echo "❌ 后端API服务启动失败"
+            sudo systemctl status novel-api --no-pager
+            exit 1
+          fi
+          
+          # 测试后端API
+          sleep 5
+          if curl -f --connect-timeout 10 http://localhost:8000/health > /dev/null 2>&1; then
+            echo "✅ 后端API响应正常"
+          elif curl -f --connect-timeout 10 http://localhost:8000/ > /dev/null 2>&1; then
+            echo "✅ 后端API响应正常"
+          else
+            echo "❌ 后端API无响应，检查端口..."
+            netstat -tlnp | grep LISTEN
+            exit 1
+          fi
+          
+          # 重启nginx
+          if command -v nginx > /dev/null 2>&1; then
+            echo "重启nginx..."
+            sudo systemctl restart nginx || echo "nginx重启完成"
+          fi
+          
+          echo "=== 后端API部署完成 ==="
+          echo "时间: $(date)"
+          echo "服务状态: $(sudo systemctl is-active novel-api)"
+          echo "内存使用: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
+          echo "当前提交: $(git log --oneline -n 1)"
+          
+          # 显示访问信息
+          EXTERNAL_IP=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || echo "unknown")
+          if [ "$EXTERNAL_IP" != "unknown" ]; then
+            echo "🔗 后端API地址: http://$EXTERNAL_IP/api/"
+          fi
+          
+          echo "🎉 后端API部署成功完成！" 
