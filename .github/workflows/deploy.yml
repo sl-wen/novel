@@ -264,12 +264,34 @@ jobs:
         timeout: 30s
         command_timeout: 10m
         script: |
-          # 创建Nginx配置文件
+          # 检查现有的Nginx配置
+          echo "=== 检查现有Nginx配置 ==="
+          ls -la /etc/nginx/sites-enabled/ || echo "sites-enabled目录不存在"
+          ls -la /etc/nginx/sites-available/ || echo "sites-available目录不存在"
+          
+          # 备份现有配置（如果存在）
+          if [ -f /etc/nginx/sites-available/novel-api ]; then
+            echo "备份现有novel-api配置..."
+            sudo cp /etc/nginx/sites-available/novel-api /etc/nginx/sites-available/novel-api.backup
+          fi
+          
+          # 检查是否有其他使用slwen.cn的配置
+          echo "检查现有配置中的域名使用情况..."
+          grep -r "slwen.cn" /etc/nginx/sites-available/ || echo "未找到slwen.cn配置"
+          
+          # 创建Nginx配置文件（使用子域名避免冲突）
+          echo "=== 创建Nginx配置文件 ==="
           sudo tee /etc/nginx/sites-available/novel-api > /dev/null <<EOF
           server {
               listen 80;
-              server_name slwen.cn;  # 替换为您的域名
+              server_name api.slwen.cn novel.slwen.cn;  # 使用子域名避免冲突
               
+              # 重定向根路径到API文档
+              location = / {
+                  return 301 /docs;
+              }
+              
+              # API代理
               location / {
                   proxy_pass http://127.0.0.1:8000;
                   proxy_set_header Host \$host;
@@ -281,24 +303,47 @@ jobs:
                   proxy_max_temp_file_size 0;
                   proxy_buffering off;
                   proxy_request_buffering off;
+                  
+                  # 增加超时时间
+                  proxy_connect_timeout 60s;
+                  proxy_send_timeout 60s;
+                  proxy_read_timeout 60s;
               }
               
               # 静态文件缓存
               location ~* \.(txt|epub|pdf)$ {
                   expires 1d;
                   add_header Cache-Control "public, immutable";
+                  proxy_pass http://127.0.0.1:8000;
+              }
+              
+              # 健康检查端点
+              location /health {
+                  access_log off;
+                  return 200 "healthy\n";
+                  add_header Content-Type text/plain;
               }
           }
           EOF
           
           # 启用站点
+          echo "=== 启用Nginx站点 ==="
           sudo ln -sf /etc/nginx/sites-available/novel-api /etc/nginx/sites-enabled/
           
           # 测试Nginx配置
+          echo "=== 测试Nginx配置 ==="
           sudo nginx -t
           
           # 重启Nginx
-          sudo systemctl reload nginx
+          echo "=== 重启Nginx ==="
+          sudo systemctl reload nginx || {
+            echo "❌ Nginx重载失败，尝试重启..."
+            sudo systemctl restart nginx
+          }
+          
+          # 检查Nginx状态
+          echo "=== 检查Nginx状态 ==="
+          sudo systemctl status nginx --no-pager
           
     - name: Health check
       uses: appleboy/ssh-action@v1.0.3
@@ -349,6 +394,19 @@ jobs:
             else
               echo "❌ 第 $i 次本地连接失败"
               sleep 10
+            fi
+          done
+          
+          # 尝试通过Nginx健康检查
+          echo "=== 尝试通过Nginx健康检查 ==="
+          for i in {1..3}; do
+            echo "尝试第 $i 次Nginx连接..."
+            if curl -f --connect-timeout 10 http://localhost/health; then
+              echo "✅ Nginx健康检查成功！"
+              break
+            else
+              echo "❌ 第 $i 次Nginx连接失败"
+              sleep 5
             fi
           done
           
