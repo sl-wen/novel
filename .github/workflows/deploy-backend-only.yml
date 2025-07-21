@@ -37,7 +37,7 @@ jobs:
           
           # 停止后端服务
           echo "停止后端API服务..."
-          sudo systemctl stop novel-api || echo "后端服务已停止"
+          sudo systemctl stop novel || echo "后端服务已停止"
           
           # 检查SSH环境
           echo "检查SSH环境..."
@@ -134,16 +134,16 @@ jobs:
           
           # 启动后端服务
           echo "启动后端API服务..."
-          sudo systemctl start novel-api
+          sudo systemctl start novel
           
           # 等待服务启动
           sleep 15
           
-          if sudo systemctl is-active --quiet novel-api; then
+          if sudo systemctl is-active --quiet novel; then
             echo "✅ 后端API服务启动成功"
           else
             echo "❌ 后端API服务启动失败"
-            sudo systemctl status novel-api --no-pager
+            sudo systemctl status novel --no-pager
             exit 1
           fi
           
@@ -167,7 +167,7 @@ jobs:
           
           echo "=== 后端API部署完成 ==="
           echo "时间: $(date)"
-          echo "服务状态: $(sudo systemctl is-active novel-api)"
+          echo "服务状态: $(sudo systemctl is-active novel)"
           echo "内存使用: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
           echo "当前提交: $(git log --oneline -n 1)"
           
