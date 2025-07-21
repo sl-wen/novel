@@ -492,6 +492,11 @@ class NovelService:
         filename = f"{FileUtils.sanitize_filename(book.bookName)}_{FileUtils.sanitize_filename(book.author)}.{format}"
         file_path = download_dir / filename
 
+        # 预处理所有章节内容，确保不是None
+        for chapter in chapters:
+            if not isinstance(chapter.content, str) or not chapter.content.strip():
+                chapter.content = "（本章获取失败）"
+
         if format == "txt":
             return self._generate_txt(book, chapters, file_path)
         elif format == "epub":

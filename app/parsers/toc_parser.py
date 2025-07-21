@@ -180,7 +180,7 @@ class TocParser:
                     logger.error(f"请求最终失败（共 {settings.REQUEST_RETRY_TIMES} 次尝试）: {str(e)}")
         
         return None
-
+    
     async def _fetch_html_single(self, url: str) -> Optional[str]:
         """获取HTML页面（单次请求）
         
@@ -224,7 +224,7 @@ class TocParser:
         chapters = []
         
         try:
-            # 获取目录规则
+        # 获取目录规则
             list_selector = self.toc_rule.get("list", "")
             title_selector = self.toc_rule.get("title", "")
             # 注意：toc.url是目录页面URL模板，不是CSS选择器
@@ -235,10 +235,10 @@ class TocParser:
             if not list_selector:
                 logger.warning("目录规则中缺少list选择器")
                 return chapters
-            
+        
             # 解析HTML
             soup = BeautifulSoup(html, "html.parser")
-            
+        
             # 获取章节列表
             items = soup.select(list_selector)
             logger.info(f"找到 {len(items)} 个章节元素")
@@ -246,15 +246,15 @@ class TocParser:
             # 如果没有找到元素，打印HTML片段用于调试
             if len(items) == 0:
                 logger.warning(f"未找到章节元素，HTML片段（前500字符）: {html[:500]}")
-            
+        
             for i, item in enumerate(items):
                 try:
-                    # 获取章节标题
+                # 获取章节标题
                     title = ""
-                    if title_selector:
+                if title_selector:
                         title_element = item.select_one(title_selector)
                         if title_element:
-                            title = title_element.get_text().strip()
+                title = title_element.get_text().strip()
                         else:
                             title = item.get_text().strip()
                     else:
@@ -263,24 +263,24 @@ class TocParser:
                     
                     # 获取章节URL - 直接从href属性获取
                     chapter_url = item.get("href", "")
-                    
-                    # 如果URL不是以http开头，则添加baseUri
+                
+                # 如果URL不是以http开头，则添加baseUri
                     if chapter_url and not chapter_url.startswith("http"):
                         base_uri = self.source.rule.get("url", "")
                         chapter_url = f"{base_uri.rstrip('/')}/{chapter_url.lstrip('/')}"
-                    
+                
                     if title and chapter_url:
-                        # 创建章节对象
-                        chapter = ChapterInfo(
+                # 创建章节对象
+                chapter = ChapterInfo(
                             url=chapter_url,
-                            title=title,
-                            order=i + 1
-                        )
+                    title=title,
+                    order=i + 1
+                )
                         chapters.append(chapter)
-                        
-                except Exception as e:
+                
+            except Exception as e:
                     logger.error(f"解析章节异常: {str(e)}")
-                    continue
+                continue
             
         except Exception as e:
             logger.error(f"解析目录异常: {str(e)}")

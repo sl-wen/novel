@@ -145,6 +145,8 @@ class ChapterParser:
         
         # 提取文本内容
         content = content_element.get_text(separator='\n', strip=True)
+        if not isinstance(content, str) or not content.strip():
+            content = "（本章获取失败）"
         
         # 过滤广告和垃圾内容
         content = self._filter_content(content, ad_patterns)
@@ -164,8 +166,8 @@ class ChapterParser:
         Returns:
             过滤后的内容
         """
-        if not content:
-            return content
+        if not isinstance(content, str) or not content.strip():
+            return "（本章获取失败）"
         
         # 应用广告过滤规则
         for pattern in ad_patterns:
@@ -209,8 +211,8 @@ class ChapterParser:
         Returns:
             格式化后的内容
         """
-        if not content:
-            return content
+        if not isinstance(content, str) or not content.strip():
+            return "（本章获取失败）"
         
         # 移除多余的空行
         content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)

@@ -40,27 +40,27 @@ class SearchParser:
             搜索结果列表
         """
         try:
-            # 构建搜索URL
-            search_url = self._build_search_url(keyword)
-            
-            # 获取请求方法和数据
-            method = self.search_rule.get("method", "get").lower()
-            data_template = self.search_rule.get("data", "")
+        # 构建搜索URL
+        search_url = self._build_search_url(keyword)
+        
+        # 获取请求方法和数据
+        method = self.search_rule.get("method", "get").lower()
+        data_template = self.search_rule.get("data", "")
             
             # 处理POST数据
             request_data = None
             if method == "post" and data_template:
                 request_data = self._process_post_data(data_template, keyword)
-            
-            # 发送请求获取搜索结果页面
+        
+        # 发送请求获取搜索结果页面
             html = await self._fetch_html_with_retry(search_url, method=method, data=request_data)
-            if not html:
+        if not html:
                 logger.warning(f"从书源 {self.source.rule.get('name', self.source.id)} 获取搜索结果失败")
-                return []
-            
-            # 解析搜索结果
-            results = self._parse_search_results(html, keyword)
-            
+            return []
+        
+        # 解析搜索结果
+        results = self._parse_search_results(html, keyword)
+        
             # 限制结果数量
             if len(results) > settings.MAX_SEARCH_RESULTS:
                 results = results[:settings.MAX_SEARCH_RESULTS]
@@ -220,10 +220,10 @@ class SearchParser:
                             if response.status == 200:
                                 content = await response.read()
                                 return self._decode_content(content, response.charset)
-                            else:
+                                     else:
                                 logger.error(f"请求失败: {url}, 状态码: {response.status}")
                                 return None
-                else:
+                                     else:
                     # GET请求
                     async with session.get(url, headers=self.headers) as response:
                         if response.status == 200:
@@ -237,7 +237,7 @@ class SearchParser:
             return None
         except aiohttp.ClientError as e:
             logger.error(f"HTTP客户端错误: {url}, 错误: {str(e)}")
-            return None
+                            return None
         except Exception as e:
             logger.error(f"请求异常: {url}, 错误: {str(e)}")
             return None
@@ -288,11 +288,11 @@ class SearchParser:
         
         try:
             # 获取搜索结果规则
-            list_selector = self.search_rule.get("list", "")
-            name_selector = self.search_rule.get("name", "")
-            author_selector = self.search_rule.get("author", "")
+        list_selector = self.search_rule.get("list", "")
+        name_selector = self.search_rule.get("name", "")
+        author_selector = self.search_rule.get("author", "")
             category_selector = self.search_rule.get("category", "")
-            latest_selector = self.search_rule.get("latest", "")
+        latest_selector = self.search_rule.get("latest", "")
             update_selector = self.search_rule.get("update", "")
             status_selector = self.search_rule.get("status", "")
             word_count_selector = self.search_rule.get("word_count", "")
@@ -300,36 +300,36 @@ class SearchParser:
             if not list_selector:
                 logger.warning("搜索规则中缺少list选择器")
                 return results
-            
-            # 解析HTML
-            soup = BeautifulSoup(html, "html.parser")
-            
-            # 获取搜索结果列表
-            items = soup.select(list_selector)
-            
-            for item in items:
-                try:
-                    # 获取书名和URL
+        
+        # 解析HTML
+        soup = BeautifulSoup(html, "html.parser")
+        
+        # 获取搜索结果列表
+        items = soup.select(list_selector)
+        
+        for item in items:
+            try:
+                # 获取书名和URL
                     book_name = ""
                     book_url = ""
                     if name_selector:
-                        name_element = item.select_one(name_selector)
+                name_element = item.select_one(name_selector)
                         if name_element:
-                            book_name = name_element.get_text().strip()
+                book_name = name_element.get_text().strip()
                             book_url = name_element.get("href", "")
                             if book_url and not book_url.startswith("http"):
                                 book_url = f"{self.source.rule.get('url', '').rstrip('/')}/{book_url.lstrip('/')}"
                     
                     if not book_name:
                         continue
-                    
-                    # 获取作者
-                    author = ""
-                    if author_selector:
-                        author_element = item.select_one(author_selector)
-                        if author_element:
-                            author = author_element.get_text().strip()
-                    
+                
+                # 获取作者
+                author = ""
+                if author_selector:
+                    author_element = item.select_one(author_selector)
+                    if author_element:
+                        author = author_element.get_text().strip()
+                
                     # 获取分类
                     category = ""
                     if category_selector:
@@ -337,13 +337,13 @@ class SearchParser:
                         if category_element:
                             category = category_element.get_text().strip()
                     
-                    # 获取最新章节
-                    latest_chapter = ""
-                    if latest_selector:
-                        latest_element = item.select_one(latest_selector)
-                        if latest_element:
-                            latest_chapter = latest_element.get_text().strip()
-                    
+                # 获取最新章节
+                latest_chapter = ""
+                if latest_selector:
+                    latest_element = item.select_one(latest_selector)
+                    if latest_element:
+                        latest_chapter = latest_element.get_text().strip()
+                
                     # 获取更新时间
                     update_time = ""
                     if update_selector:
@@ -365,27 +365,27 @@ class SearchParser:
                         if word_count_element:
                             word_count = word_count_element.get_text().strip()
                     
-                    # 创建搜索结果对象
-                    result = SearchResult(
-                        sourceId=self.source.id,
+                # 创建搜索结果对象
+                result = SearchResult(
+                    sourceId=self.source.id,
                         sourceName=self.source.rule.get("name", f"书源{self.source.id}"),
                         url=book_url,
-                        bookName=book_name,
+                    bookName=book_name,
                         author=author or None,
                         category=category or None,
                         latestChapter=latest_chapter or None,
                         lastUpdateTime=update_time or None,
                         status=status or None,
                         wordCount=word_count or None
-                    )
+                )
+                
+                results.append(result)
                     
-                    results.append(result)
-                    
-                except Exception as e:
+            except Exception as e:
                     logger.error(f"解析搜索结果项异常: {str(e)}")
-                    continue
+                continue
         
         except Exception as e:
             logger.error(f"解析搜索结果异常: {str(e)}")
-            
+        
         return results
