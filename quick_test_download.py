@@ -92,60 +92,66 @@ def quick_test():
         "format": "txt"
     }
     
+    print(f"📤 请求参数: {download_params}")
     
     try:
-        print("📥 开始下载，这可能需要较长时间...")
-        
-        # 增加超时时间到5分钟，使用流式下载
         download_response = requests.get(
             f"{base_url}/api/novels/download",
             params=download_params,
-            timeout=300,  # 5分钟超时
-            stream=True   # 流式下载
+            timeout=600
         )
         
-        if download_response.status_code != 200:
-            print(f"❌ 下载失败: {download_response.status_code}")
-            print(f"响应内容: {download_response.text[:200]}")
-            return
+        print(f"📊 响应状态: {download_response.status_code}")
+        print(f"📋 响应头: {dict(download_response.headers)}")
         
-        # 获取文件信息
-        content_disposition = download_response.headers.get('content-disposition', '')
-        content_length = download_response.headers.get('content-length', '0')
+        if download_response.status_code == 500:
+            error_detail = download_response.json()
+            print(f"❌ 详细错误信息:")
+            print(f"   Code: {error_detail.get('code')}")
+            print(f"   Message: {error_detail.get('message')}")
+            print(f"   Data: {error_detail.get('data')}")
+            
+            # 分析错误
+            error_msg = error_detail.get('message', '')
+            if 'NoneType' in error_msg:
+                print("\n💡 分析：这是空值处理问题")
+                print("   可能原因：")
+                print("   1. 章节内容爬取失败返回None")
+                print("   2. 小说标题/作者信息为空")
+                print("   3. URL解析失败")
+                print("   4. 网站反爬导致内容获取失败")
+        else:
         
-        print(f"📄 Content-Disposition: {content_disposition}")
-        print(f"📊 预计文件大小: {content_length} 字节")
+            # 获取文件信息
+            content_disposition = download_response.headers.get('content-disposition', '')
+            content_length = download_response.headers.get('content-length', '0')
+        
+            print(f"📄 Content-Disposition: {content_disposition}")
+            print(f"📊 预计文件大小: {content_length} 字节")
         
         # 流式读取内容并显示进度
-        total_size = int(content_length) if content_length.isdigit() else 0
-        downloaded_size = 0
-        start_time = time.time()
+            total_size = int(content_length) if content_length.isdigit() else 0
+            downloaded_size = 0
+            start_time = time.time()
         
-        content_chunks = []
-        for chunk in download_response.iter_content(chunk_size=8192):
-            if chunk:
-                content_chunks.append(chunk)
-                downloaded_size += len(chunk)
+            content_chunks = []
+            for chunk in download_response.iter_content(chunk_size=8192):
+                if chunk:
+                    content_chunks.append(chunk)
+                    downloaded_size += len(chunk)
                 
-                # 每1MB显示一次进度
-                if downloaded_size % (1024 * 1024) == 0 or downloaded_size < 1024 * 1024:
-                    elapsed = time.time() - start_time
-                    if total_size > 0:
-                        progress = (downloaded_size / total_size) * 100
-                        print(f"📥 下载进度: {progress:.1f}% ({downloaded_size}/{total_size} 字节) - 耗时: {elapsed:.1f}s")
-                    else:
-                        print(f"📥 已下载: {downloaded_size} 字节 - 耗时: {elapsed:.1f}s")
+                    # 每1MB显示一次进度
+                    if downloaded_size % (1024 * 1024) == 0 or downloaded_size < 1024 * 1024:
+                        elapsed = time.time() - start_time
+                        if total_size > 0:
+                            progress = (downloaded_size / total_size) * 100
+                            print(f"📥 下载进度: {progress:.1f}% ({downloaded_size}/{total_size} 字节) - 耗时: {elapsed:.1f}s")
+                        else:
+                            print(f"📥 已下载: {downloaded_size} 字节 - 耗时: {elapsed:.1f}s")
         
-        # 合并所有内容
-        full_content = b''.join(content_chunks)
-        elapsed_time = time.time() - start_time
-        
-        print(f"✅ 下载测试成功!")
-        print(f"📄 文件头: {content_disposition}")
-        print(f"📊 实际文件大小: {len(full_content)} 字节")
-        print(f"⏱️ 总耗时: {elapsed_time:.2f} 秒")
-        print(f"🚀 平均速度: {len(full_content) / elapsed_time / 1024:.2f} KB/s")
-        
+            # 合并所有内容
+            full_content = b''.join(content_chunks)
+
         # 显示内容预览
         try:
             preview = full_content[:200].decode('utf-8', errors='ignore')
@@ -154,22 +160,9 @@ def quick_test():
             print("📖 内容预览: [二进制内容]")
             
         print("🎉 下载功能完全正常!")
-        
-    except requests.exceptions.Timeout:
-        print("❌ 下载接口超时 (5分钟)")
-        print("💡 建议检查:")
-        print("   1. 后端下载逻辑是否有死循环或卡住")
-        print("   2. 网络爬取是否遇到反爬限制")
-        print("   3. 999章内容是否过多导致处理缓慢")
-        print("   4. 数据库或文件IO是否有瓶颈")
-        return
-        
-    except requests.exceptions.RequestException as e:
-        print(f"❌ 下载请求异常: {e}")
-        return
+            
     except Exception as e:
-        print(f"❌ 下载处理异常: {e}")
-        return
+        print(f"❌ 请求异常: {e}")
 
 if __name__ == "__main__":
-    quick_test()
+    debug_download() 
