@@ -22,7 +22,7 @@ novel_service = NovelService()
 
 
 @router.get("/search", response_model=SearchResponse)
-async def search_novels(keyword: str = Query(..., description="搜索关键词（书名或作者名）")):
+async def search_novels(keyword: str = Query(...,default=None, description="搜索关键词（书名或作者名）")):
     """
     根据关键词搜索小说
     """
