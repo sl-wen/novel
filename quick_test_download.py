@@ -9,13 +9,10 @@ import time
 from urllib.parse import quote
 
 def quick_test():
-    """快速测试核心功能"""
     base_url = "http://localhost:8000"
-    
     print("🚀 快速测试下载功能修复")
     print("=" * 50)
     
-    # 等待服务器启动
     print("等待服务器启动...")
     for i in range(10):
         try:
@@ -23,28 +20,44 @@ def quick_test():
             if response.status_code == 200:
                 print(f"✅ 服务器已启动 (第{i+1}次尝试)")
                 break
-        except:
+        except Exception as e:
+            print(f"第{i+1}次连接失败: {e}")
             if i < 9:
                 time.sleep(2)
             else:
                 print("❌ 服务器启动失败")
                 return
     
-    # 1. 测试搜索
+    # 1. 测试搜索功能
     print("\n1️⃣ 测试搜索功能")
-    search_response = requests.get(f"{base_url}/api/novels/search", 
-                                 params={"keyword": quote("修真")}, 
-                                 timeout=15)
-    
-    if search_response.status_code != 200:
-        print(f"❌ 搜索失败: {search_response.status_code}")
+    params = {"keyword": "修真"}
+    try:
+        search_response = requests.get(
+            f"{base_url}/api/novels/search",
+            params=params,
+            timeout=15
+        )
+    except requests.exceptions.Timeout:
+        print(f"❌ 搜索接口超时: {base_url}/api/novels/search?keyword=%E4%BF%AE%E7%9C%9F")
+        print("   可能后端接口耗时过长或未正常响应，请检查后端服务及其依赖网络。")
         return
-    
-    results = search_response.json().get('data', [])
+    except requests.exceptions.RequestException as e:
+        print(f"❌ 搜索请求异常: {e}")
+        return
+
+    if search_response.status_code != 200:
+        print(f"❌ 搜索失败: {search_response.status_code}，响应内容: {search_response.text[:100]}")
+        return
+
+    try:
+        results = search_response.json().get('data', [])
+    except Exception as e:
+        print(f"❌ 返回结果不是合法JSON: {e}, 原始响应: {search_response.text[:100]}")
+        return
+        
     if not results:
         print("❌ 没有搜索结果")
         return
-        
     print(f"✅ 搜索成功，找到 {len(results)} 条结果")
     
     # 选择第一个结果
