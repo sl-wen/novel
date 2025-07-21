@@ -492,10 +492,19 @@ class NovelService:
         filename = f"{FileUtils.sanitize_filename(book.bookName)}_{FileUtils.sanitize_filename(book.author)}.{format}"
         file_path = download_dir / filename
 
-        # 预处理所有章节内容，确保不是None
+        # 预处理所有章节内容和书籍信息，确保不是None
+        safe = lambda v, d: v if isinstance(v, str) and v.strip() else d
+        book.bookName = safe(getattr(book, 'bookName', None), '未知书名')
+        book.author = safe(getattr(book, 'author', None), '未知作者')
+        book.intro = safe(getattr(book, 'intro', None), '')
+        book.category = safe(getattr(book, 'category', None), '')
+        book.latestChapter = safe(getattr(book, 'latestChapter', None), '')
+        book.lastUpdateTime = safe(getattr(book, 'lastUpdateTime', None), '')
+        book.status = safe(getattr(book, 'status', None), '')
+        book.wordCount = safe(getattr(book, 'wordCount', None), '')
         for chapter in chapters:
-            if not isinstance(chapter.content, str) or not chapter.content.strip():
-                chapter.content = "（本章获取失败）"
+            chapter.title = safe(getattr(chapter, 'title', None), '无标题')
+            chapter.content = safe(getattr(chapter, 'content', None), '（本章获取失败）')
 
         if format == "txt":
             return self._generate_txt(book, chapters, file_path)
