@@ -165,4 +165,4 @@ def quick_test():
         print(f"❌ 请求异常: {e}")
 
 if __name__ == "__main__":
-    debug_download() 
+    quick_test() 

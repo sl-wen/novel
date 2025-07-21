@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 import os
 import logging
+import traceback
 
 from app.models.search import SearchResult, SearchResponse
 from app.models.book import Book
@@ -128,12 +129,21 @@ async def download_novel(background_tasks: BackgroundTasks,
         # 异步下载并生成文件
         file_path = await novel_service.download(url, sourceId, format)
         logger.info(f"下载完成，文件路径：{file_path}")
+        if not file_path or not os.path.exists(file_path):
+            raise ValueError(f"文件生成失败或不存在: {file_path}")
         
         # 文件名处理 - 解决中文编码问题
         import urllib.parse
-        safe_book_name = book.bookName.replace("/", "_").replace("\\", "_").replace(":", "：")  # 替换不安全字符
-        safe_author = book.author.replace("/", "_").replace("\\", "_").replace(":", "：")
-        filename = f"{safe_book_name}_{safe_author}.{format}"
+        # safe_book_name = book.bookName.replace("/", "_").replace("\\", "_").replace(":", "：")  # 替换不安全字符
+        # safe_author = book.author.replace("/", "_").replace("\\", "_").replace(":", "：")
+        # 🔧 修复点1：安全获取书籍信息
+        book_name = getattr(book, 'bookName', '未知小说') or '未知小说'
+        author = getattr(book, 'author', '未知作者') or '未知作者'
+    
+        # 🔧 修复点2：确保字符串类型
+        book_name = str(book_name) if book_name is not None else '未知小说'
+        author = str(author) if author is not None else '未知作者'
+        filename = f"{book_name}_{author}.{format}"
         
         # 对文件名进行URL编码，解决中文字符问题
         encoded_filename = urllib.parse.quote(filename, safe='')
@@ -150,6 +160,7 @@ async def download_novel(background_tasks: BackgroundTasks,
         )
     except Exception as e:
         logger.error(f"下载小说失败: {str(e)}")
+        logger.error(f"下载失败详细信息:\n{traceback.format_exc()}")
         return JSONResponse(
             status_code=500,
             content={
