@@ -114,27 +114,22 @@ class NovelService:
 
         return converted_rule
 
-    async def search(self, keyword: str) -> List[SearchResult]:
+    async def search(self, keyword: str, max_results: int = 30) -> List[SearchResult]:
         """搜索小说
-
         Args:
             keyword: 搜索关键词（书名或作者名）
-
+            max_results: 最大返回结果数
         Returns:
             搜索结果列表
         """
-        logger.info(f"开始搜索: {keyword}")
+        logger.info(f"开始搜索: {keyword}, max_results={max_results}")
         start_time = time.time()
-
         tasks = []
         searchable_sources = [source for source in self.sources.values() if source.rule.get("search")]
-
         if not searchable_sources:
             logger.warning("没有找到可用的搜索书源规则")
             return []
-
         async def search_single_source(source: Source, keyword: str):
-            """搜索单个书源并处理结果或异常"""
             try:
                 search_parser = SearchParser(source)
                 results = await search_parser.parse(keyword)
@@ -142,26 +137,19 @@ class NovelService:
                 return results
             except Exception as e:
                 logger.error(f"书源 {source.rule.get('name', source.id)} 搜索失败: {str(e)}")
-                return [] # 搜索失败时返回空列表
-
+                return []
         for source in searchable_sources:
             tasks.append(search_single_source(source, keyword))
-
         results_from_sources = await asyncio.gather(*tasks)
-
         all_results = []
         for source_results in results_from_sources:
             all_results.extend(source_results)
-
-        # 过滤和排序搜索结果
-        filtered_results = self._filter_and_sort_results(all_results, keyword)
-
+        filtered_results = self._filter_and_sort_results(all_results, keyword, max_results=max_results)
         end_time = time.time()
         logger.info(f"搜索完成: 原始结果 {len(all_results)} 条，过滤后 {len(filtered_results)} 条，耗时 {end_time - start_time:.2f} 秒")
-
         return filtered_results
     
-    def _filter_and_sort_results(self, results: List[SearchResult], keyword: str) -> List[SearchResult]:
+    def _filter_and_sort_results(self, results: List[SearchResult], keyword: str, max_results: int = 30) -> List[SearchResult]:
         """过滤和排序搜索结果
         
         Args:
@@ -210,7 +198,7 @@ class NovelService:
         valid_results.sort(key=lambda x: x.score or 0, reverse=True)
         
         # 5. 限制返回结果数量
-        final_results = valid_results[:settings.MAX_SEARCH_RESULTS]
+        final_results = valid_results[:max_results]
         logger.info(f"最终返回 {len(final_results)} 条结果")
         
         return final_results

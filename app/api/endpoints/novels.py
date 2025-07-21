@@ -23,13 +23,16 @@ novel_service = NovelService()
 
 
 @router.get("/search", response_model=SearchResponse)
-async def search_novels(keyword: str = Query(None, description="搜索关键词（书名或作者名）")):
+async def search_novels(
+    keyword: str = Query(None, description="搜索关键词（书名或作者名）"),
+    maxResults: int = Query(30, ge=1, le=100, description="最大返回结果数，默认30，最大100")
+):
     """
     根据关键词搜索小说
     """
     try:
-        logger.info(f"开始搜索小说，关键词：{keyword}")
-        results = await novel_service.search(keyword)
+        logger.info(f"开始搜索小说，关键词：{keyword}，maxResults={maxResults}")
+        results = await novel_service.search(keyword, max_results=maxResults)
         logger.info(f"搜索完成，找到 {len(results)} 条结果")
         return {
             "code": 200,
