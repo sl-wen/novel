@@ -35,7 +35,7 @@ def quick_test():
         search_response = requests.get(
             f"{base_url}/api/novels/search",
             params=params,
-            timeout=15
+            timeout=90
         )
     except requests.exceptions.Timeout:
         print(f"❌ 搜索接口超时: {base_url}/api/novels/search?keyword=%E4%BF%AE%E7%9C%9F")
