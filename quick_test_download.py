@@ -71,7 +71,7 @@ def quick_test():
                                    "url": book.get('url'),
                                    "sourceId": book.get('sourceId')
                                },
-                               timeout=15)
+                               timeout=200)
     
     if toc_response.status_code != 200:
         print(f"❌ 目录获取失败: {toc_response.status_code}")
