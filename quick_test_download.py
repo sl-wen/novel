@@ -6,6 +6,7 @@
 
 import requests
 import time
+from urllib.parse import quote
 
 def quick_test():
     """快速测试核心功能"""
@@ -32,7 +33,7 @@ def quick_test():
     # 1. 测试搜索
     print("\n1️⃣ 测试搜索功能")
     search_response = requests.get(f"{base_url}/api/novels/search", 
-                                 params={"keyword": "修真"}, 
+                                 params={"keyword": quote("修真")}, 
                                  timeout=15)
     
     if search_response.status_code != 200:
