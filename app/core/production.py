@@ -17,10 +17,10 @@ class ProductionSettings:
     
     # 日志配置
     LOG_LEVEL = "INFO"
-    LOG_FILE = "/var/log/novel-api/app.log"
+    LOG_FILE = "/var/log/novel/app.log"
     
     # 文件路径配置
-    DOWNLOAD_PATH = "/var/www/novel-api/downloads"
+    DOWNLOAD_PATH = "/var/www/novel/downloads"
     
     # 安全配置
     SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
@@ -37,7 +37,7 @@ class ProductionSettings:
     
     # 下载配置
     DEFAULT_FORMAT = "txt"
-    SUPPORTED_FORMATS = ["txt", "epub", "pdf"]
+    SUPPORTED_FORMATS = ["txt", "epub"]
     MAX_DOWNLOAD_SIZE = 100 * 1024 * 1024  # 100MB
     
     # 书源配置

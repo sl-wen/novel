@@ -47,11 +47,8 @@ novel/
 │       ├── __init__.py
 │       ├── http.py         # HTTP工具
 │       └── file.py         # 文件工具
-├── resources/              # 资源文件
-│   └── rule/               # 书源规则
-│       └── rule-1.json     # 示例书源规则
-├── tests/                  # 测试
-│   └── __init__.py
+├── rules/                  # 资源文件
+│   └── rule-1.json         # 示例书源规则
 ├── .gitignore
 ├── requirements.txt        # 依赖
 └── README.md               # 项目说明
@@ -153,7 +150,7 @@ GET /api/novels/download?url={url}&sourceId={sourceId}&format={format}
 **参数**：
 - `url`: 小说详情页URL
 - `sourceId`: 书源ID
-- `format`: 下载格式，支持txt、epub、pdf，默认txt
+- `format`: 下载格式，支持txt、epub，默认txt
 
 **响应**：
 文件下载流
@@ -185,4 +182,4 @@ http://localhost:8000/docs
 - [ ] 小说下载API实现
 - [ ] 多书源聚合搜索
 - [ ] 异步并发下载
-- [ ] 文件格式转换（TXT、EPUB、PDF）
+- [ ] 文件格式转换（TXT、EPUB）

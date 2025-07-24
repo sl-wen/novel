@@ -101,7 +101,7 @@ class Crawler:
         Args:
             url: 小说详情页URL
             source_id: 书源ID
-            format: 下载格式，支持txt、epub、pdf
+            format: 下载格式，支持txt、epub
             
         Returns:
             下载文件路径
@@ -178,8 +178,6 @@ class Crawler:
             return self._generate_txt(book, chapters, file_path)
         elif format == "epub":
             return self._generate_epub(book, chapters, file_path)
-        elif format == "pdf":
-            return self._generate_pdf(book, chapters, file_path)
         else:
             raise ValueError(f"不支持的格式: {format}")
     
@@ -222,17 +220,3 @@ class Crawler:
         # 目前仅生成TXT文件代替
         return self._generate_txt(book, chapters, file_path.with_suffix(".txt"))
     
-    def _generate_pdf(self, book: Book, chapters: List[Chapter], file_path: Path) -> str:
-        """生成PDF文件
-        
-        Args:
-            book: 小说详情
-            chapters: 章节列表
-            file_path: 文件路径
-            
-        Returns:
-            文件路径
-        """
-        # 这里应该实现生成PDF文件的逻辑
-        # 目前仅生成TXT文件代替
-        return self._generate_txt(book, chapters, file_path.with_suffix(".txt"))

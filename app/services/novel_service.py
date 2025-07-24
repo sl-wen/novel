@@ -436,7 +436,7 @@ class NovelService:
         Args:
             url: 小说详情页URL
             source_id: 书源ID
-            format: 下载格式，支持txt、epub、pdf
+            format: 下载格式，支持txt、epub
 
         Returns:
             下载文件路径
@@ -498,8 +498,6 @@ class NovelService:
             return self._generate_txt(book, chapters, file_path)
         elif format == "epub":
             return self._generate_epub(book, chapters, file_path)
-        elif format == "pdf":
-            return self._generate_pdf(book, chapters, file_path)
         else:
             raise ValueError(f"不支持的格式: {format}")
 
@@ -602,71 +600,6 @@ class NovelService:
             logger.error(f"生成EPUB文件失败: {str(e)}")
             return self._generate_txt(book, chapters, file_path.with_suffix(".txt"))
 
-    def _generate_pdf(self, book: Book, chapters: List[Chapter], file_path: Path) -> Path:
-        """生成PDF文件
-
-        Args:
-            book: 小说详情
-            chapters: 章节列表
-            file_path: 文件路径
-
-        Returns:
-            文件路径
-        """
-        try:
-            from weasyprint import HTML, CSS
-            
-            chapters.sort(key=lambda x: x.order)
-            
-            # 生成HTML内容
-            html_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <title>{book.bookName}</title>
-                <style>
-                    body {{ font-family: "Microsoft YaHei", SimSun, serif; font-size: 14px; line-height: 1.6; }}
-                    h1 {{ color: #333; text-align: center; }}
-                    h2 {{ color: #666; margin-top: 2em; }}
-                    .book-info {{ text-align: center; margin-bottom: 3em; }}
-                    .chapter {{ page-break-before: auto; margin-bottom: 2em; }}
-                    .chapter-title {{ font-size: 18px; font-weight: bold; margin-bottom: 1em; }}
-                    .chapter-content {{ text-indent: 2em; }}
-                </style>
-            </head>
-            <body>
-                <div class="book-info">
-                    <h1>{book.bookName or "未知书名"}</h1>
-                    <p>作者：{book.author or "未知作者"}</p>
-                    <p>分类：{book.category or "未分类"}</p>
-                    {f'<p>简介：{book.intro}</p>' if book.intro else ''}
-                </div>
-            """
-            
-            for chapter in chapters:
-                html_content += f"""
-                <div class="chapter">
-                    <div class="chapter-title">{chapter.title}</div>
-                    <div class="chapter-content">{chapter.content.replace(chr(10), '</p><p>')}</div>
-                </div>
-                """
-            
-            html_content += "</body></html>"
-            
-            # 生成PDF
-            html_doc = HTML(string=html_content)
-            html_doc.write_pdf(str(file_path))
-            
-            logger.info(f"PDF文件生成成功: {file_path}")
-            return file_path
-            
-        except ImportError:
-            logger.warning("weasyprint未安装，使用TXT格式代替PDF")
-            return self._generate_txt(book, chapters, file_path.with_suffix(".txt"))
-        except Exception as e:
-            logger.error(f"生成PDF文件失败: {str(e)}")
-            return self._generate_txt(book, chapters, file_path.with_suffix(".txt"))
 
     async def get_sources(self):
         """获取所有可用书源

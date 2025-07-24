@@ -109,7 +109,7 @@ async def get_novel_toc(url: str = Query(..., description="小说详情页URL"),
 async def download_novel(background_tasks: BackgroundTasks,
                        url: str = Query(..., description="小说详情页URL"),
                        sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
-                       format: str = Query(settings.DEFAULT_FORMAT, description="下载格式，支持txt、epub、pdf")):
+                       format: str = Query(settings.DEFAULT_FORMAT, description="下载格式，支持txt、epub")):
     """
     下载小说
     """

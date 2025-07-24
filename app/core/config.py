@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     DOWNLOAD_PATH: str = str(ROOT_DIR / "downloads")
     
     # 书源设置
-    RULES_PATH: str = str(ROOT_DIR / "resources" / "rule" / "new")
+    RULES_PATH: str = str(ROOT_DIR / "rules")
     DEFAULT_SOURCE_ID: int = 1
     
     # 并发设置
@@ -38,12 +38,12 @@ class Settings(BaseSettings):
     MAX_SEARCH_RESULTS: int = 20  # 最大搜索结果数
     
     # 文件格式
-    SUPPORTED_FORMATS: List[str] = ["txt", "epub", "pdf"]
+    SUPPORTED_FORMATS: List[str] = ["txt", "epub"]
     DEFAULT_FORMAT: str = "txt"
     
     # HTTP设置
     DEFAULT_TIMEOUT: int = 10  # 秒
-    REQUEST_RETRY_TIMES: int = 3  # 请求重试次数
+    REQUEST_RETRY_TIMES: int = 1  # 请求重试次数
     REQUEST_RETRY_DELAY: float = 1.0  # 请求重试延迟（秒）
     DEFAULT_HEADERS: dict = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
