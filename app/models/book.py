@@ -1,16 +1,17 @@
-from pydantic import BaseModel, HttpUrl
-from typing import Optional
+from pydantic import BaseModel
 
 
 class Book(BaseModel):
-    """书籍模型，对应Java项目中的Book类"""
-    url: str
-    bookName: str
-    author: Optional[str] = None
-    intro: Optional[str] = None
-    category: Optional[str] = None
-    coverUrl: Optional[str] = None
-    latestChapter: Optional[str] = None
-    lastUpdateTime: Optional[str] = None
-    status: Optional[str] = None
-    wordCount: Optional[str] = None
+    """小说详情模型"""
+
+    title: str
+    author: str
+    intro: str = ""
+    cover: str = ""
+    status: str = ""
+    category: str = ""
+    word_count: str = ""
+    update_time: str = ""
+    toc_url: str = ""
+    source_id: int = 0
+    source_name: str = ""

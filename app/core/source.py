@@ -1,7 +1,6 @@
 import json
-import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from app.core.config import settings
 
@@ -9,21 +8,24 @@ from app.core.config import settings
 class Source:
     """书源类，对应Java项目中的Source类"""
 
-    def __init__(self, source_id: int, rule_data: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self, source_id: int, rule_data: Optional[Dict[str, Any]] = None
+    ):
         """初始化书源
 
         Args:
             source_id: 书源ID
-            rule_data: 可选的规则数据字典，如果提供则直接使用，否则根据source_id加载文件
+            rule_data: 可选的规则数据字典，如果提供则直接使用，
+                      否则根据source_id加载文件
         """
-        self.id = source_id # 添加id属性
+        self.id = source_id  # 添加id属性
         self.source_id = source_id
         if rule_data is not None:
             self.rule = rule_data
         else:
             self.rule = self._load_rule(source_id)
         # 从rule中获取书源名称
-        self.name = self.rule.get('name', f'书源{source_id}')
+        self.name = self.rule.get("name", f"书源{source_id}")
         self._apply_default_rule()
 
     def _load_rule(self, source_id: int) -> Dict[str, Any]:
@@ -50,25 +52,42 @@ class Source:
         # 设置baseUri默认值
         if "search" in self.rule and not self.rule["search"].get("baseUri"):
             self.rule["search"]["baseUri"] = self.rule.get("url", "")
-            
+
         if "book" in self.rule and not self.rule["book"].get("baseUri"):
             self.rule["book"]["baseUri"] = self.rule.get("url", "")
-            
+
         if "toc" in self.rule and not self.rule["toc"].get("baseUri"):
             self.rule["toc"]["baseUri"] = self.rule.get("url", "")
-            
+
         if "chapter" in self.rule and not self.rule["chapter"].get("baseUri"):
             self.rule["chapter"]["baseUri"] = self.rule.get("url", "")
-        
+
         # 设置timeout默认值
         if "search" in self.rule and not self.rule["search"].get("timeout"):
             self.rule["search"]["timeout"] = 10
-            
+
         if "book" in self.rule and not self.rule["book"].get("timeout"):
             self.rule["book"]["timeout"] = 10
-            
+
         if "toc" in self.rule and not self.rule["toc"].get("timeout"):
             self.rule["toc"]["timeout"] = 15
-            
+
         if "chapter" in self.rule and not self.rule["chapter"].get("timeout"):
             self.rule["chapter"]["timeout"] = 10
+
+    @classmethod
+    def from_rule_file(cls, rule_file: Path) -> "Source":
+        """从规则文件创建书源实例
+
+        Args:
+            rule_file: 规则文件路径
+
+        Returns:
+            书源实例
+        """
+        with open(rule_file, "r", encoding="utf-8") as f:
+            rule_data = json.load(f)
+
+        # 从文件名提取书源ID
+        source_id = int(rule_file.stem.split("-")[1])
+        return cls(source_id, rule_data)

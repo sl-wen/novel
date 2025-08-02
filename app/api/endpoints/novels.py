@@ -1,16 +1,11 @@
-from fastapi import APIRouter, Query, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
-import os
 import logging
-import traceback
 
-from app.models.search import SearchResult, SearchResponse
-from app.models.book import Book
-from app.models.chapter import Chapter, ChapterInfo
-from app.services.novel_service import NovelService
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi.responses import JSONResponse
+
 from app.core.config import settings
+from app.models.search import SearchResponse
+from app.services.novel_service import NovelService
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -25,7 +20,12 @@ novel_service = NovelService()
 @router.get("/search", response_model=SearchResponse)
 async def search_novels(
     keyword: str = Query(None, description="搜索关键词（书名或作者名）"),
-    maxResults: int = Query(30, ge=1, le=100, description="最大返回结果数，默认30，最大100")
+    maxResults: int = Query(
+        30,
+        ge=1,
+        le=100,
+        description="最大返回结果数，默认30，最大100",
+    ),
 ):
     """
     根据关键词搜索小说
@@ -34,11 +34,7 @@ async def search_novels(
         logger.info(f"开始搜索小说，关键词：{keyword}，maxResults={maxResults}")
         results = await novel_service.search(keyword, max_results=maxResults)
         logger.info(f"搜索完成，找到 {len(results)} 条结果")
-        return {
-            "code": 200,
-            "message": "success",
-            "data": results
-        }
+        return {"code": 200, "message": "success", "data": results}
     except Exception as e:
         logger.error(f"搜索失败: {str(e)}")
         return JSONResponse(
@@ -46,26 +42,24 @@ async def search_novels(
             content={
                 "code": 500,
                 "message": f"搜索失败: {str(e)}",
-                "data": None
-            }
+                "data": None,
+            },
         )
 
 
 @router.get("/detail")
-async def get_novel_detail(url: str = Query(..., description="小说详情页URL"),
-                          sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID")):
+async def get_novel_detail(
+    url: str = Query(..., description="小说详情页URL"),
+    sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
+):
     """
     获取小说详情
     """
     try:
         logger.info(f"开始获取小说详情，URL：{url}，书源ID：{sourceId}")
         book = await novel_service.get_book_detail(url, sourceId)
-        logger.info(f"获取小说详情成功：{book.bookName}")
-        return {
-            "code": 200,
-            "message": "success",
-            "data": book
-        }
+        logger.info(f"获取小说详情成功：{book.title}")
+        return {"code": 200, "message": "success", "data": book}
     except Exception as e:
         logger.error(f"获取小说详情失败: {str(e)}")
         return JSONResponse(
@@ -73,14 +67,16 @@ async def get_novel_detail(url: str = Query(..., description="小说详情页URL
             content={
                 "code": 500,
                 "message": f"获取小说详情失败: {str(e)}",
-                "data": None
-            }
+                "data": None,
+            },
         )
 
 
 @router.get("/toc")
-async def get_novel_toc(url: str = Query(..., description="小说详情页URL"),
-                      sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID")):
+async def get_novel_toc(
+    url: str = Query(..., description="小说详情页URL"),
+    sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
+):
     """
     获取小说目录
     """
@@ -88,11 +84,7 @@ async def get_novel_toc(url: str = Query(..., description="小说详情页URL"),
         logger.info(f"开始获取小说目录，URL：{url}，书源ID：{sourceId}")
         toc = await novel_service.get_toc(url, sourceId)
         logger.info(f"获取小说目录成功，共 {len(toc)} 章")
-        return {
-            "code": 200,
-            "message": "success",
-            "data": toc
-        }
+        return {"code": 200, "message": "success", "data": toc}
     except Exception as e:
         logger.error(f"获取小说目录失败: {str(e)}")
         return JSONResponse(
@@ -100,91 +92,107 @@ async def get_novel_toc(url: str = Query(..., description="小说详情页URL"),
             content={
                 "code": 500,
                 "message": f"获取小说目录失败: {str(e)}",
-                "data": None
-            }
+                "data": None,
+            },
         )
 
 
 @router.get("/download")
-async def download_novel(background_tasks: BackgroundTasks,
-                       url: str = Query(..., description="小说详情页URL"),
-                       sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
-                       format: str = Query(settings.DEFAULT_FORMAT, description="下载格式，支持txt、epub")):
+async def download_novel(
+    background_tasks: BackgroundTasks,
+    url: str = Query(..., description="小说详情页URL"),
+    sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
+    format: str = Query(settings.DEFAULT_FORMAT, description="下载格式，支持txt、epub"),
+):
     """
     下载小说
     """
-    if format not in settings.SUPPORTED_FORMATS:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "code": 400,
-                "message": f"不支持的格式: {format}，支持的格式: {', '.join(settings.SUPPORTED_FORMATS)}",
-                "data": None
-            }
-        )
-    
     try:
         logger.info(f"开始下载小说，URL：{url}，书源ID：{sourceId}，格式：{format}")
-        # 获取书籍信息
+
+        # 获取小说信息
         book = await novel_service.get_book_detail(url, sourceId)
-        logger.info(f"获取书籍信息成功：{book.bookName}")
-        
-        # 异步下载并生成文件
-        file_path = await novel_service.download(url, sourceId, format)
-        logger.info(f"下载完成，文件路径：{file_path}")
-        if not file_path or not os.path.exists(file_path):
-            raise ValueError(f"文件生成失败或不存在: {file_path}")
-        
-        # 文件名处理 - 解决中文编码问题
-        import urllib.parse
-        # safe_book_name = book.bookName.replace("/", "_").replace("\\", "_").replace(":", "：")  # 替换不安全字符
-        # safe_author = book.author.replace("/", "_").replace("\\", "_").replace(":", "：")
-        # 🔧 修复点1：安全获取书籍信息
-        book_name = getattr(book, 'bookName', '未知小说') or '未知小说'
-        author = getattr(book, 'author', '未知作者') or '未知作者'
-    
-        # 🔧 修复点2：确保字符串类型
-        book_name = str(book_name) if book_name is not None else '未知小说'
-        author = str(author) if author is not None else '未知作者'
-        filename = f"{book_name}_{author}.{format}"
-        
-        # 对文件名进行URL编码，解决中文字符问题
-        encoded_filename = urllib.parse.quote(filename, safe='')
-        
-        # 返回文件流
-        return StreamingResponse(
-            open(file_path, "rb"),
-            media_type="application/octet-stream",
-            headers={
-                # 使用RFC 5987标准格式，支持UTF-8编码的文件名
-                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
-                "Access-Control-Expose-Headers": "Content-Disposition"
-            }
-        )
+        if not book:
+            raise HTTPException(status_code=404, detail="小说不存在")
+
+        # 获取目录
+        toc = await novel_service.get_toc(url, sourceId)
+        if not toc:
+            raise HTTPException(status_code=404, detail="小说目录为空")
+
+        # 生成文件名
+        filename = f"{book.title}_{book.author}.{format}"
+        filename = "".join(
+            c for c in filename if c.isalnum() or c in (" ", "-", "_")
+        ).rstrip()
+
+        # 创建下载任务
+        download_task = novel_service.download_novel(book, toc, format, filename)
+
+        # 添加到后台任务
+        background_tasks.add_task(download_task)
+
+        return {
+            "code": 200,
+            "message": "下载任务已启动",
+            "data": {
+                "filename": filename,
+                "total_chapters": len(toc),
+                "format": format,
+            },
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"下载小说失败: {str(e)}")
-        logger.error(f"下载失败详细信息:\n{traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={"code": 500, "message": f"下载小说失败: {str(e)}", "data": None},
+        )
+
+
+@router.get("/chapter")
+async def get_chapter_content(
+    url: str = Query(..., description="章节URL"),
+    sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
+):
+    """
+    获取章节内容
+    """
+    try:
+        logger.info(f"开始获取章节内容，URL：{url}，书源ID：{sourceId}")
+        chapter = await novel_service.get_chapter_content(url, sourceId)
+        logger.info(f"获取章节内容成功：{chapter.title}")
+        return {"code": 200, "message": "success", "data": chapter}
+    except Exception as e:
+        logger.error(f"获取章节内容失败: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={
                 "code": 500,
-                "message": f"下载小说失败: {str(e)}",
-                "data": None
-            }
+                "message": f"获取章节内容失败: {str(e)}",
+                "data": None,
+            },
         )
 
 
 @router.get("/sources")
 async def get_sources():
     """
-    获取所有可用书源
+    获取所有书源信息
     """
     try:
-        sources = await novel_service.get_sources()
-        return {
-            "code": 200,
-            "message": "success",
-            "data": sources
-        }
+        logger.info("开始获取书源信息")
+        sources = novel_service.get_sources()
+        logger.info(f"获取书源信息成功，共 {len(sources)} 个书源")
+        return {"code": 200, "message": "success", "data": sources}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取书源失败: {str(e)}")
+        logger.error(f"获取书源信息失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"获取书源信息失败: {str(e)}",
+                "data": None,
+            },
+        )

@@ -1,4 +1,4 @@
-# 工具模块初始化文件
+# 工具模块
 from app.utils.file import FileUtils
 
-__all__ = ['FileUtils']
+__all__ = ["FileUtils"]

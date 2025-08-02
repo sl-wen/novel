@@ -1,4 +1,4 @@
-# 服务模块初始化文件
+# 服务模块
 from app.services.novel_service import NovelService
 
-__all__ = ['NovelService']
+__all__ = ["NovelService"]
