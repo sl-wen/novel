@@ -80,27 +80,27 @@ class NovelService:
                 "url": rule_data["search"].get("url", ""),
                 "method": rule_data["search"].get("method", "get"),
                 "data": rule_data["search"].get("data", "{}"),
-                "list": rule_data["search"].get("result", ""),
-                "name": rule_data["search"].get("title", ""),
+                "list": rule_data["search"].get("list", ""),
+                "title": rule_data["search"].get("name", ""),
                 "author": rule_data["search"].get("author", ""),
                 "category": rule_data["search"].get("category", ""),
-                "latest": rule_data["search"].get("latestChapter", ""),
-                "update": rule_data["search"].get("lastUpdateTime", ""),
+                "latest": rule_data["search"].get("latest", ""),
+                "update": rule_data["search"].get("update", ""),
                 "status": rule_data["search"].get("status", ""),
-                "word_count": rule_data["search"].get("wordCount", ""),
+                "word_count": rule_data["search"].get("word_count", ""),
             }
 
         if "book" in rule_data:
             converted_rule["book"] = {
-                "name": rule_data["book"].get("title", ""),
+                "title": rule_data["book"].get("name", ""),
                 "author": rule_data["book"].get("author", ""),
                 "intro": rule_data["book"].get("intro", ""),
                 "category": rule_data["book"].get("category", ""),
-                "cover": rule_data["book"].get("coverUrl", ""),
-                "latest": rule_data["book"].get("latestChapter", ""),
-                "update": rule_data["book"].get("lastUpdateTime", ""),
+                "cover": rule_data["book"].get("cover", ""),
+                "latest": rule_data["book"].get("latest", ""),
+                "update": rule_data["book"].get("update", ""),
                 "status": rule_data["book"].get("status", ""),
-                "word_count": rule_data["book"].get("wordCount", ""),
+                "word_count": rule_data["book"].get("word_count", ""),
             }
 
         if "toc" in rule_data:
@@ -547,10 +547,10 @@ class NovelService:
         book.author = safe(getattr(book, "author", None), "未知作者")
         book.intro = safe(getattr(book, "intro", None), "")
         book.category = safe(getattr(book, "category", None), "")
-        book.latestChapter = safe(getattr(book, "latestChapter", None), "")
-        book.lastUpdateTime = safe(getattr(book, "lastUpdateTime", None), "")
+        book.latest_chapter = safe(getattr(book, "latest_chapter", None), "")
+        book.update_time = safe(getattr(book, "update_time", None), "")
         book.status = safe(getattr(book, "status", None), "")
-        book.wordCount = safe(getattr(book, "wordCount", None), "")
+        book.word_count = safe(getattr(book, "word_count", None), "")
         for chapter in chapters:
             chapter.title = safe(getattr(chapter, "title", None), "无标题")
             chapter.content = safe(
@@ -585,10 +585,10 @@ class NovelService:
             f.write(f"作者: {book.author}\n")
             f.write(f"简介: {book.intro}\n")
             f.write(f"分类: {book.category}\n")
-            f.write(f"最新章节: {book.latestChapter}\n")
-            f.write(f"更新时间: {book.lastUpdateTime}\n")
+            f.write(f"最新章节: {book.latest_chapter}\n")
+            f.write(f"更新时间: {book.update_time}\n")
             f.write(f"状态: {book.status}\n")
-            f.write(f"字数: {book.wordCount}\n")
+            f.write(f"字数: {book.word_count}\n")
             f.write("\n" + "=" * 50 + "\n\n")
 
             for chapter in chapters:
