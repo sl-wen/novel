@@ -81,7 +81,7 @@ class NovelService:
                 "method": rule_data["search"].get("method", "get"),
                 "data": rule_data["search"].get("data", "{}"),
                 "list": rule_data["search"].get("result", ""),
-                "name": rule_data["search"].get("bookName", ""),
+                "name": rule_data["search"].get("title", ""),
                 "author": rule_data["search"].get("author", ""),
                 "category": rule_data["search"].get("category", ""),
                 "latest": rule_data["search"].get("latestChapter", ""),
@@ -92,7 +92,7 @@ class NovelService:
 
         if "book" in rule_data:
             converted_rule["book"] = {
-                "name": rule_data["book"].get("bookName", ""),
+                "name": rule_data["book"].get("title", ""),
                 "author": rule_data["book"].get("author", ""),
                 "intro": rule_data["book"].get("intro", ""),
                 "category": rule_data["book"].get("category", ""),
@@ -199,21 +199,19 @@ class NovelService:
 
         for i, result in enumerate(results):
             logger.debug(
-                f"处理结果 {i+1}: 书名='{result.bookName}', "
+                f"处理结果 {i+1}: 书名='{result.title}', "
                 f"作者='{result.author}', URL='{result.url}'"
             )
 
             # 1. 过滤明显异常的结果
             if not self._is_valid_result(result):
                 filtered_count += 1
-                logger.debug(f"过滤无效结果: {result.bookName} - {result.url}")
+                logger.debug(f"过滤无效结果: {result.title} - {result.url}")
                 continue
 
             # 2. 计算相关性得分
             relevance_score = self._calculate_relevance_score(result, keyword)
-            logger.debug(
-                f"结果 '{result.bookName}' 的相关性得分: {relevance_score:.3f}"
-            )
+            logger.debug(f"结果 '{result.title}' 的相关性得分: {relevance_score:.3f}")
 
             # 3. 只保留相关性得分大于阈值的结果 (进一步降低阈值)
             if relevance_score > 0.01:  # 进一步降低阈值从0.05到0.01
@@ -221,12 +219,12 @@ class NovelService:
                 result.score = relevance_score
                 valid_results.append(result)
                 logger.debug(
-                    f"保留结果: {result.bookName} " f"(得分: {relevance_score:.3f})"
+                    f"保留结果: {result.title} " f"(得分: {relevance_score:.3f})"
                 )
             else:
                 low_relevance_count += 1
                 logger.debug(
-                    f"过滤低相关性结果: {result.bookName} "
+                    f"过滤低相关性结果: {result.title} "
                     f"(得分: {relevance_score:.3f})"
                 )
 
@@ -256,20 +254,20 @@ class NovelService:
             是否为有效结果
         """
         # 检查书名是否有效
-        if not result.bookName or len(result.bookName.strip()) < 1:
-            logger.debug(f"书名无效: '{result.bookName}'")
+        if not result.title or len(result.title.strip()) < 1:
+            logger.debug(f"书名无效: '{result.title}'")
             return False
 
         # 暂时禁用乱码检测，因为逻辑有问题
         # TODO: 改进乱码检测逻辑
-        # invalid_chars = result.bookName.count('?') + result.bookName.count('')
-        # if invalid_chars > len(result.bookName) * 0.7:
-        #     logger.debug(f"包含过多乱码字符: '{result.bookName}' (乱码字符比例: {invalid_chars/len(result.bookName):.1%})")
+        # invalid_chars = result.title.count('?') + result.title.count('')
+        # if invalid_chars > len(result.title) * 0.7:
+        #     logger.debug(f"包含过多乱码字符: '{result.title}' (乱码字符比例: {invalid_chars/len(result.title):.1%})")
         #     return False
 
         # 检查URL是否有效
         if not result.url:
-            logger.debug(f"URL为空: '{result.bookName}'")
+            logger.debug(f"URL为空: '{result.title}'")
             return False
 
         # 检查URL格式
@@ -297,8 +295,8 @@ class NovelService:
         keyword_clean = self._clean_text(keyword)
 
         # 1. 书名匹配得分 (权重: 0.6)
-        if result.bookName:
-            book_name_clean = self._clean_text(result.bookName)
+        if result.title:
+            book_name_clean = self._clean_text(result.title)
 
             # 完全匹配 - 最高分
             if keyword_clean == book_name_clean:
@@ -341,8 +339,8 @@ class NovelService:
 
         # 4. 额外加分项
         # 如果书名很短且匹配度高，给额外分数
-        if result.bookName and len(self._clean_text(result.bookName)) <= 6:
-            if keyword_clean in self._clean_text(result.bookName):
+        if result.title and len(self._clean_text(result.title)) <= 6:
+            if keyword_clean in self._clean_text(result.title):
                 score += 0.1
 
         return min(score, 1.0)  # 确保得分不超过1
@@ -503,9 +501,7 @@ class NovelService:
 
         toc = await self.get_toc(url, source_id)
 
-        book_folder_name = FileUtils.sanitize_filename(
-            f"{book.bookName} ({book.author})"
-        )
+        book_folder_name = FileUtils.sanitize_filename(f"{book.title} ({book.author})")
         download_dir = Path(settings.DOWNLOAD_PATH) / book_folder_name
         os.makedirs(download_dir, exist_ok=True)
 
@@ -538,7 +534,7 @@ class NovelService:
             文件路径
         """
         filename = (
-            f"{FileUtils.sanitize_filename(book.bookName)}_"
+            f"{FileUtils.sanitize_filename(book.title)}_"
             f"{FileUtils.sanitize_filename(book.author)}.{format}"
         )
         file_path = download_dir / filename
@@ -547,7 +543,7 @@ class NovelService:
         def safe(v, d):
             return v if isinstance(v, str) and v.strip() else d
 
-        book.bookName = safe(getattr(book, "bookName", None), "未知书名")
+        book.title = safe(getattr(book, "title", None), "未知书名")
         book.author = safe(getattr(book, "author", None), "未知作者")
         book.intro = safe(getattr(book, "intro", None), "")
         book.category = safe(getattr(book, "category", None), "")
@@ -585,7 +581,7 @@ class NovelService:
         chapters.sort(key=lambda x: x.order)
 
         with open(file_path, "w", encoding="utf-8") as f:
-            f.write(f"书名: {book.bookName}\n")
+            f.write(f"书名: {book.title}\n")
             f.write(f"作者: {book.author}\n")
             f.write(f"简介: {book.intro}\n")
             f.write(f"分类: {book.category}\n")
@@ -624,8 +620,8 @@ class NovelService:
             epub_book = epub.EpubBook()
 
             # 设置元数据
-            epub_book.set_identifier("novel_" + str(hash(book.bookName)))
-            epub_book.set_title(book.bookName or "未知书名")
+            epub_book.set_identifier("novel_" + str(hash(book.title)))
+            epub_book.set_title(book.title or "未知书名")
             epub_book.set_language("zh")
 
             if book.author:

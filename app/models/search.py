@@ -6,7 +6,7 @@ from pydantic import BaseModel
 class SearchResult(BaseModel):
     """搜索结果模型"""
 
-    bookName: str
+    title: str
     author: str
     intro: str = ""
     cover: str = ""

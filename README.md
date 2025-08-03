@@ -75,7 +75,7 @@ GET /api/novels/search?keyword={keyword}
       "sourceId": 1,
       "sourceName": "书源名称",
       "url": "小说详情页URL",
-      "bookName": "小说名",
+      "title": "小说名",
       "author": "作者",
       "chapterCount": 100,
       "latestChapter": "最新章节",
@@ -103,7 +103,7 @@ GET /api/novels/detail?url={url}&sourceId={sourceId}
   "message": "success",
   "data": {
     "url": "小说详情页URL",
-    "bookName": "小说名",
+    "title": "小说名",
     "author": "作者",
     "intro": "简介",
     "category": "分类",

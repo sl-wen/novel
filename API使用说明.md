@@ -95,7 +95,7 @@ python run.py
       "sourceId": 1,
       "sourceName": "香书小说",
       "url": "https://example.com/book/123",
-      "bookName": "斗破苍穹",
+      "title": "斗破苍穹",
       "author": "天蚕土豆",
       "category": "玄幻",
       "latestChapter": "第一千章 大结局",
@@ -122,7 +122,7 @@ python run.py
   "message": "success",
   "data": {
     "url": "https://example.com/book/123",
-    "bookName": "斗破苍穹",
+    "title": "斗破苍穹",
     "author": "天蚕土豆",
     "intro": "这里是小说简介...",
     "category": "玄幻",
