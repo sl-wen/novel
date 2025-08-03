@@ -81,7 +81,7 @@ class NovelService:
                 "method": rule_data["search"].get("method", "get"),
                 "data": rule_data["search"].get("data", "{}"),
                 "list": rule_data["search"].get("list", ""),
-                "title": rule_data["search"].get("name", ""),
+                "name": rule_data["search"].get("name", ""),
                 "author": rule_data["search"].get("author", ""),
                 "category": rule_data["search"].get("category", ""),
                 "latest": rule_data["search"].get("latest", ""),

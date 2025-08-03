@@ -285,7 +285,7 @@ class SearchParser:
         """
         try:
             # 获取书名
-            title_selector = self.search_rule.get("title", "")
+            title_selector = self.search_rule.get("name", "")
             title = self._extract_text(element, title_selector)
 
             # 获取作者
@@ -417,15 +417,11 @@ class SearchParser:
                 import chardet
 
                 detected = chardet.detect(content)
-                return content.decode(
-                    detected["encoding"] or "utf-8"
-                )
+                return content.decode(detected["encoding"] or "utf-8")
         except Exception as e:
             logger.warning(f"解码内容失败: {str(e)}")
             # 尝试使用utf-8解码
             try:
                 return content.decode("utf-8")
             except Exception:
-                return content.decode(
-                    "utf-8", errors="ignore"
-                )
+                return content.decode("utf-8", errors="ignore")
