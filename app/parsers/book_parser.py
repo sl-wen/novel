@@ -131,7 +131,7 @@ class BookParser:
         soup = BeautifulSoup(html, "html.parser")
 
         # 获取书籍标题
-        title_selector = self.book_rule.get("title", "")
+        title_selector = self.book_rule.get("name", "")
         title = self._extract_text(soup, title_selector)
 
         # 获取作者
