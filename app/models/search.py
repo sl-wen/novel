@@ -18,6 +18,7 @@ class SearchResult(BaseModel):
     latest_chapter: str = ""
     source_id: int = 0
     source_name: str = ""
+    score: float = 0.0
 
 
 class SearchResponse(BaseModel):
