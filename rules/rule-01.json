@@ -12,6 +12,7 @@
     "list": "#checkform > table > tbody > tr",
     "name": "td.even > a",
     "author": "td:nth-of-type(3)",
+    "url": "td.even > a",
     "category": "",
     "latest": "td.odd > a",
     "update": "td:nth-of-type(4)",

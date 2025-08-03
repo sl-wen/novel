@@ -265,19 +265,31 @@ class NovelService:
         #     logger.debug(f"包含过多乱码字符: '{result.title}' (乱码字符比例: {invalid_chars/len(result.title):.1%})")
         #     return False
 
+        # 临时放宽URL检查，允许空URL的结果通过
         # 检查URL是否有效
         if not result.url:
-            logger.debug(f"URL为空: '{result.title}'")
-            return False
+            logger.debug(f"URL为空: '{result.title}'，但允许通过")
+            # return False  # 临时注释掉，允许空URL的结果
 
+        # 临时放宽URL格式检查，允许相对路径
         # 检查URL格式
-        url_lower = result.url.lower()
-        if not any(
-            indicator in url_lower
-            for indicator in ["http", ".com", ".net", ".org", ".cn", "/"]
-        ):
-            logger.debug(f"URL格式无效: '{result.url}'")
-            return False
+        if result.url:  # 只有当URL不为空时才检查格式
+            url_lower = result.url.lower()
+            if not any(
+                indicator in url_lower
+                for indicator in [
+                    "http",
+                    ".com",
+                    ".net",
+                    ".org",
+                    ".cn",
+                    "/",
+                    "html",
+                    "php",
+                ]
+            ):
+                logger.debug(f"URL格式无效: '{result.url}'，但允许通过")
+                # return False  # 临时注释掉，允许格式不正确的URL
 
         return True
 
