@@ -9,22 +9,22 @@
     "url": "https://www.wxsy.net/search.html",
     "method": "post",
     "data": "{s: %s}",
-    "result": "body > div.container > div:nth-child(1) > div > ul > li",
-    "bookName": "span.s2 > a",
+    "list": "body > div.container > div:nth-child(1) > div > ul > li",
+    "name": "span.s2 > a",
     "author": "span.s3 > a",
     "category": "span.s1",
-    "latestChapter": "span.s4 > a",
-    "lastUpdateTime": "span.s5"
+    "latest_chapter": "span.s4 > a",
+    "update_time": "span.s5"
   },
   "book": {
     "url": "https://www.wxsy.net/novel/(.*?)/",
-    "bookName": "meta[property=\"og:novel:book_name\"]",
+    "name": "meta[property=\"og:novel:book_name\"]",
     "author": "meta[property=\"og:novel:author\"]",
     "intro": "meta[name=\"description\"]",
     "category": "meta[property=\"og:novel:category\"]",
-    "coverUrl": "meta[property=\"og:image\"]",
-    "latestChapter": "meta[property=\"og:novel:latest_chapter_name\"]",
-    "lastUpdateTime": "meta[property=\"og:novel:update_time\"]",
+    "cover": "meta[property=\"og:image\"]",
+    "latest_chapter": "meta[property=\"og:novel:latest_chapter_name\"]",
+    "update_time": "meta[property=\"og:novel:update_time\"]",
     "status": "meta[property=\"og:novel:status\"]"
   },
   "toc": {
