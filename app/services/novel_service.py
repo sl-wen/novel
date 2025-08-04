@@ -198,35 +198,46 @@ class NovelService:
         low_relevance_count = 0
 
         for i, result in enumerate(results):
-            logger.debug(
-                f"处理结果 {i+1}: 书名='{result.title}', "
-                f"作者='{result.author}', URL='{result.url}'"
-            )
+            try:
+                logger.debug(
+                    f"处理结果 {i+1}: 书名='{result.title}', "
+                    f"作者='{result.author}', URL='{result.url}'"
+                )
 
-            # 1. 过滤明显异常的结果
-            if not self._is_valid_result(result):
+                # 1. 过滤明显异常的结果
+                if not self._is_valid_result(result):
+                    filtered_count += 1
+                    logger.debug(f"过滤无效结果: {result.title} - {result.url}")
+                    continue
+
+                # 2. 计算相关性得分
+                relevance_score = self._calculate_relevance_score(result, keyword)
+                logger.debug(f"结果 '{result.title}' 的相关性得分: {relevance_score:.3f}")
+
+                # 3. 只保留相关性得分大于阈值的结果 (进一步降低阈值)
+                if relevance_score > 0.01:  # 进一步降低阈值从0.05到0.01
+                    # 将得分存储在结果中用于排序
+                    result.score = relevance_score
+                    valid_results.append(result)
+                    logger.debug(
+                        f"保留结果: {result.title} " f"(得分: {relevance_score:.3f})"
+                    )
+                else:
+                    low_relevance_count += 1
+                    logger.debug(
+                        f"过滤低相关性结果: {result.title} "
+                        f"(得分: {relevance_score:.3f})"
+                    )
+            except AttributeError as e:
+                # 如果出现bookName或其他属性错误，跳过这个结果
+                logger.warning(f"跳过有问题的搜索结果: {str(e)}")
                 filtered_count += 1
-                logger.debug(f"过滤无效结果: {result.title} - {result.url}")
                 continue
-
-            # 2. 计算相关性得分
-            relevance_score = self._calculate_relevance_score(result, keyword)
-            logger.debug(f"结果 '{result.title}' 的相关性得分: {relevance_score:.3f}")
-
-            # 3. 只保留相关性得分大于阈值的结果 (进一步降低阈值)
-            if relevance_score > 0.01:  # 进一步降低阈值从0.05到0.01
-                # 将得分存储在结果中用于排序
-                result.score = relevance_score
-                valid_results.append(result)
-                logger.debug(
-                    f"保留结果: {result.title} " f"(得分: {relevance_score:.3f})"
-                )
-            else:
-                low_relevance_count += 1
-                logger.debug(
-                    f"过滤低相关性结果: {result.title} "
-                    f"(得分: {relevance_score:.3f})"
-                )
+            except Exception as e:
+                # 其他错误也跳过
+                logger.warning(f"处理搜索结果时出错，跳过: {str(e)}")
+                filtered_count += 1
+                continue
 
         logger.info(
             f"结果过滤统计 - 原始: {len(results)}, "
@@ -376,7 +387,7 @@ class NovelService:
         import re
 
         text = re.sub(
-            r'[，。！？；：""' "（）【】《》\s\-_\[\]()]+",
+            r'[，。！？；：""''（）【】《》\s\-_\[\]()]+',
             "",
             text,
             flags=re.UNICODE,
