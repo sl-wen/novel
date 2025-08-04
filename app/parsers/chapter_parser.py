@@ -138,26 +138,36 @@ class ChapterParser:
             章节内容
         """
         # 获取章节内容规则
-        content_selector = self.chapter_rule.get("content", "")
+        content_selectors = self.chapter_rule.get("content", "").split(",")
         ad_patterns = self.chapter_rule.get("ad_patterns", [])
 
-        if not content_selector:
+        if not content_selectors:
             logger.warning("章节规则中缺少content选择器")
             return "无法获取章节内容：缺少内容选择器"
 
         # 解析HTML
         soup = BeautifulSoup(html, "html.parser")
 
-        # 获取章节内容
-        content_element = soup.select_one(content_selector)
-        if not content_element:
-            logger.warning(f"未找到章节内容元素: {content_selector}")
-            return "无法获取章节内容：内容元素不存在"
+        # 尝试多个选择器获取章节内容
+        content = None
+        for selector in content_selectors:
+            selector = selector.strip()
+            if not selector:
+                continue
+                
+            content_element = soup.select_one(selector)
+            if content_element:
+                content = content_element.get_text(separator="\n", strip=True)
+                if content and len(content) > 100:  # 确保内容足够长
+                    logger.debug(f"使用选择器 {selector} 成功获取内容")
+                    break
+                else:
+                    logger.warning(f"选择器 {selector} 获取的内容过短")
+                    content = None
 
-        # 提取文本内容
-        content = content_element.get_text(separator="\n", strip=True)
-        if not isinstance(content, str) or not content.strip():
-            content = "（本章获取失败）"
+        if not content:
+            logger.warning(f"未找到有效的章节内容")
+            return "无法获取章节内容：内容元素不存在"
 
         # 过滤广告和垃圾内容
         content = self._filter_content(content, ad_patterns)
@@ -203,6 +213,26 @@ class ChapterParser:
             r"\(本章完\)",
             r"章节错误[，,].*?举报",
             r"内容严重缺失[，,].*?举报",
+            r"笔趣阁.+",
+            r"新笔趣阁.+",
+            r"香书小说.+",
+            r"文学巴士.+",
+            r"高速全文字在线阅读.+",
+            r"天才一秒记住本站地址.+",
+            r"手机用户请浏览阅读.+",
+            r"天才壹秒記住.+為您提供精彩小說閱讀.+",
+            r"一秒记住【.+?】",
+            r"天才一秒记住.+?",
+            r"天才壹秒記住.+?",
+            r"看最新章节请到.+?",
+            r"本书最新章节请到.+?",
+            r"更新最快的.+?",
+            r"手机用户请访问.+?",
+            r"手机版阅读网址.+?",
+            r"推荐都市大神.+?",
+            r"\(本章完\)",
+            r"章节错误.+?举报",
+            r"内容严重缺失.+?举报",
         ]
 
         for pattern in common_ad_patterns:

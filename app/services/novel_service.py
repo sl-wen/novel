@@ -4,7 +4,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from app.core.config import settings
 from app.core.source import Source
@@ -523,26 +523,126 @@ class NovelService:
             raise ValueError(f"无效的书源ID: {source_id}")
 
         book = await self.get_book_detail(url, source_id)
+        logger.info(f"获取书籍详情成功: {book.title}")
 
         toc = await self.get_toc(url, source_id)
+        logger.info(f"获取目录成功，共 {len(toc)} 章")
 
         book_folder_name = FileUtils.sanitize_filename(f"{book.title} ({book.author})")
         download_dir = Path(settings.DOWNLOAD_PATH) / book_folder_name
         os.makedirs(download_dir, exist_ok=True)
 
-        chapter_parser = ChapterParser(source)
-
-        tasks = []
-        for chapter in toc:
-            tasks.append(
-                chapter_parser.parse(chapter.url, chapter.title, chapter.order)
-            )
-
-        chapters = await asyncio.gather(*tasks)
+        # 使用改进的章节下载方法
+        chapters = await self._download_chapters_with_retry(toc, source)
 
         file_path = self._generate_file(book, chapters, format, download_dir)
 
         return str(file_path)
+
+    async def _download_chapters_with_retry(
+        self, toc: List[ChapterInfo], source: Source
+    ) -> List[Chapter]:
+        """带重试机制的章节下载
+
+        Args:
+            toc: 目录列表
+            source: 书源对象
+
+        Returns:
+            章节列表
+        """
+        chapter_parser = ChapterParser(source)
+        chapters = []
+        failed_chapters = []
+        
+        # 并发控制参数
+        max_concurrent = 5  # 最大并发数
+        retry_times = 3     # 重试次数
+        retry_delay = 2.0   # 重试延迟
+        
+        logger.info(f"开始下载 {len(toc)} 章，最大并发数: {max_concurrent}")
+        
+        # 分批处理章节
+        for i in range(0, len(toc), max_concurrent):
+            batch = toc[i:i + max_concurrent]
+            logger.info(f"处理第 {i+1}-{min(i+max_concurrent, len(toc))} 章")
+            
+            # 并发下载当前批次
+            tasks = []
+            for chapter_info in batch:
+                task = self._download_single_chapter_with_retry(
+                    chapter_parser, chapter_info, retry_times, retry_delay
+                )
+                tasks.append(task)
+            
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 处理结果
+            for j, result in enumerate(batch_results):
+                if isinstance(result, Exception):
+                    logger.error(f"章节下载失败: {batch[j].title}, 错误: {str(result)}")
+                    failed_chapters.append(batch[j])
+                elif result and len(result.content) > 50:
+                    chapters.append(result)
+                    logger.debug(f"章节下载成功: {result.title} ({len(result.content)} 字符)")
+                else:
+                    logger.warning(f"章节内容过短或为空: {batch[j].title}")
+                    failed_chapters.append(batch[j])
+            
+            # 批次间延迟，避免请求过于频繁
+            if i + max_concurrent < len(toc):
+                await asyncio.sleep(1)
+        
+        logger.info(f"章节下载完成: 成功 {len(chapters)} 章，失败 {len(failed_chapters)} 章")
+        
+        if failed_chapters:
+            logger.warning("失败的章节:")
+            for chapter in failed_chapters[:10]:  # 只显示前10个
+                logger.warning(f"  - {chapter.title}")
+        
+        return chapters
+
+    async def _download_single_chapter_with_retry(
+        self, 
+        chapter_parser: ChapterParser, 
+        chapter_info: ChapterInfo, 
+        retry_times: int, 
+        retry_delay: float
+    ) -> Optional[Chapter]:
+        """带重试的单章节下载
+
+        Args:
+            chapter_parser: 章节解析器
+            chapter_info: 章节信息
+            retry_times: 重试次数
+            retry_delay: 重试延迟
+
+        Returns:
+            章节对象，失败返回None
+        """
+        for attempt in range(retry_times):
+            try:
+                chapter = await chapter_parser.parse(
+                    chapter_info.url, chapter_info.title, chapter_info.order
+                )
+                
+                # 检查内容质量
+                if chapter and len(chapter.content) > 50:
+                    return chapter
+                else:
+                    logger.warning(f"章节内容质量不佳 (第{attempt+1}次): {chapter_info.title}")
+                    
+            except Exception as e:
+                if attempt < retry_times - 1:
+                    logger.warning(
+                        f"章节下载失败 (第{attempt+1}次): {chapter_info.title}, "
+                        f"错误: {str(e)}, {retry_delay}秒后重试"
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(f"章节下载最终失败: {chapter_info.title}, 错误: {str(e)}")
+        
+        return None
 
     def _generate_file(
         self, book: Book, chapters: List[Chapter], format: str, download_dir: Path

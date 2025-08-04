@@ -202,14 +202,27 @@ class TocParser:
         chapters = []
 
         # 获取章节列表选择器
-        list_selector = self.toc_rule.get("list", "")
-        if not list_selector:
+        list_selectors = self.toc_rule.get("list", "").split(",")
+        if not list_selectors:
             logger.warning("未配置章节列表选择器")
             return chapters
 
-        # 获取章节列表
-        chapter_elements = soup.select(list_selector)
-        logger.info(f"找到 {len(chapter_elements)} 个章节元素")
+        # 尝试多个选择器获取章节列表
+        chapter_elements = []
+        for selector in list_selectors:
+            selector = selector.strip()
+            if not selector:
+                continue
+                
+            elements = soup.select(selector)
+            if elements:
+                logger.info(f"使用选择器 {selector} 找到 {len(elements)} 个章节元素")
+                chapter_elements = elements
+                break
+        
+        if not chapter_elements:
+            logger.warning("未找到任何章节元素")
+            return chapters
 
         for index, element in enumerate(chapter_elements, 1):
             try:
