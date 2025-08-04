@@ -333,23 +333,28 @@ class SearchParser:
                 base_url = self.source.rule.get("url", "")
                 cover = f"{base_url.rstrip('/')}/{cover.lstrip('/')}"
 
-            return SearchResult(
-                title=title or "未知标题",
-                author=author or "未知作者",
-                intro=intro or "",
-                cover=cover or "",
-                url=url or "",
-                category=category or "",
-                status=status or "未知",
-                word_count=word_count or "",
-                update_time=update_time or "",
-                latest_chapter=latest_chapter or "",
-                source_id=self.source.id,
-                source_name=self.source.rule.get("name", self.source.id),
-            )
-        except Exception as e:
-            logger.warning(f"解析搜索结果失败: {str(e)}")
-            return None
+            try:
+                return SearchResult(
+                    title=title or "未知标题",
+                    author=author or "未知作者",
+                    intro=intro or "",
+                    cover=cover or "",
+                    url=url or "",
+                    category=category or "",
+                    status=status or "未知",
+                    word_count=word_count or "",
+                    update_time=update_time or "",
+                    latest_chapter=latest_chapter or "",
+                    source_id=self.source.id,
+                    source_name=self.source.rule.get("name", self.source.id),
+                )
+            except AttributeError as e:
+                # 如果出现bookName相关错误，记录并返回None
+                logger.warning(f"SearchResult创建失败（bookName相关）: {str(e)}")
+                return None
+            except Exception as e:
+                logger.warning(f"解析搜索结果失败: {str(e)}")
+                return None
 
     def _extract_text(self, element: BeautifulSoup, selector: str) -> str:
         """提取文本内容
