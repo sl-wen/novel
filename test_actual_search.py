@@ -31,6 +31,12 @@ async def test_actual_search():
             print(f"Result {i+1}: Type={type(result)}")
             if hasattr(result, 'bookName'):
                 print(f"  bookName: {result.bookName}")
+                print(f"  author: {result.author}")
+                print(f"  url: {result.url}")
+                print(f"  chapterCount: {result.chapterCount}")
+                print(f"  latestChapter: {result.latestChapter}")
+                print(f"  lastUpdateTime: {result.lastUpdateTime}")
+                print(f"  score: {result.score}")
             else:
                 print(f"  No bookName attribute!")
                 print(f"  Available attributes: {dir(result)}")
