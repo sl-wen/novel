@@ -16,7 +16,7 @@ class Book(BaseModel):
     toc_url: str = ""
     source_id: int = 0
     source_name: str = ""
-    bookName: str = Field(default="", alias="bookName")
+    bookName: str = Field(default="", description="书名，与title字段同步")
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -28,3 +28,11 @@ class Book(BaseModel):
     def bookName_property(self) -> str:
         """向后兼容的属性，映射到title字段"""
         return self.title
+
+    def model_dump(self, **kwargs):
+        """自定义序列化方法，确保bookName字段正确输出"""
+        data = super().model_dump(**kwargs)
+        # 确保bookName字段存在且与title同步
+        if not data.get('bookName') and data.get('title'):
+            data['bookName'] = data['title']
+        return data
