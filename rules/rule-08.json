@@ -32,7 +32,7 @@
   "toc": {
     "list": "div:nth-child(2n+5) > span > a",
     "title": "",
-    "url": "https://www.dxmwx.org/chapter/%s.html",
+    "url": "",
     "has_pages": false,
     "next_page": ""
   },

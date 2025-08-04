@@ -30,9 +30,9 @@
     "word_count": ""
   },
   "toc": {
-    "list": "#content_1 > a",
+    "list": "div[class*='list'] a",
     "title": "",
-    "url": "https://www.tianxibook.com/xiaoshuo/%s/",
+    "url": "",
     "has_pages": true,
     "next_page": "#indexselect > option"
   },

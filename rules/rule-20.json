@@ -28,11 +28,12 @@
     "status": "meta[property=\"og:novel:status\"]"
   },
   "toc": {
-    "url": "https://www.wxsy.net/novel/%s/chapter_1.html",
+    "url": "a",
     "list": "/html@js:const childRegex=/\\.section-list\\.ycxsid>li:nth-child\\(\\d+\\){display:none}/g;const lastChildRegex=/\\.section-list\\.ycxsid>li:nth-last-child\\(\\d+\\){display:none}/g;const preHiddenCount=[...r.matchAll(childRegex)].length;const afterHiddenCount=[...r.matchAll(lastChildRegex)].length;r=r.replace(/<ul[^>]*class=\"[^\"]*\\bsection-list\\b[^\"]*\\bycxsid\\b[^\"]*\"[^>]*>([\\s\\S]*?)<\\/ul>/g,(match,liContent)=>{const lis=liContent.match(/<li[\\s\\S]*?<\\/li>/g)||[];const newLis=lis.slice(preHiddenCount,lis.length-afterHiddenCount);return match.replace(liContent,newLis.join(''))});",
     "item": ".biqunaicc > div:nth-child(2) > div > ul > li > a",
     "pagination": true,
-    "nextPage": ".biqunaicc > div:nth-child(2) > div > div:nth-child(2) > select > option"
+    "nextPage": ".biqunaicc > div:nth-child(2) > div > div:nth-child(2) > select > option",
+    "title": "a"
   },
   "chapter": {
     "title": "h3",
