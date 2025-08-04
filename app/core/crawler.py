@@ -113,7 +113,14 @@ class Crawler:
         toc = await self.get_toc(url, source_id)
         
         # 创建下载目录
-        self.book_dir = FileUtils.sanitize_filename(f"{book.bookName}({book.author}) {format.upper()}")
+        try:
+            book_name = getattr(book, 'bookName', '未知书名') or '未知书名'
+            author_name = getattr(book, 'author', '未知作者') or '未知作者'
+            self.book_dir = FileUtils.sanitize_filename(f"{book_name}({author_name}) {format.upper()}")
+        except Exception as e:
+            logger.error(f"获取书籍信息时发生异常: {str(e)}")
+            self.book_dir = FileUtils.sanitize_filename(f"未知书籍_{format.upper()}")
+        
         download_dir = Path(self.config.DOWNLOAD_PATH) / self.book_dir
         os.makedirs(download_dir, exist_ok=True)
         
@@ -170,7 +177,14 @@ class Crawler:
             文件路径
         """
         # 生成文件名
-        filename = f"{book.bookName}_{book.author}.{format}"
+        try:
+            book_name = getattr(book, 'bookName', '未知书名') or '未知书名'
+            author_name = getattr(book, 'author', '未知作者') or '未知作者'
+            filename = f"{book_name}_{author_name}.{format}"
+        except Exception as e:
+            logger.error(f"生成文件名时发生异常: {str(e)}")
+            filename = f"未知书籍_{format}"
+        
         file_path = download_dir / filename
         
         # 根据格式生成文件
@@ -196,9 +210,18 @@ class Crawler:
         """
         with open(file_path, "w", encoding="utf-8") as f:
             # 写入小说信息
-            f.write(f"书名: {book.bookName}\n")
-            f.write(f"作者: {book.author}\n")
-            f.write(f"简介: {book.intro}\n\n")
+            try:
+                book_name = getattr(book, 'bookName', '未知书名') or '未知书名'
+                author_name = getattr(book, 'author', '未知作者') or '未知作者'
+                intro_text = getattr(book, 'intro', '') or ''
+                f.write(f"书名: {book_name}\n")
+                f.write(f"作者: {author_name}\n")
+                f.write(f"简介: {intro_text}\n\n")
+            except Exception as e:
+                logger.error(f"写入书籍信息时发生异常: {str(e)}")
+                f.write(f"书名: 未知书名\n")
+                f.write(f"作者: 未知作者\n")
+                f.write(f"简介: \n\n")
             
             # 写入章节内容
             for chapter in chapters:

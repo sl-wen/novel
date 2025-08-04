@@ -380,7 +380,11 @@ class SearchParser:
                     )
                     
                     # Debug: Log the created result
-                    logger.debug(f"创建搜索结果: 类型={type(result)}, 书名='{result.bookName}'")
+                    try:
+                        logger.debug(f"创建搜索结果: 类型={type(result)}, 书名='{result.bookName}'")
+                    except Exception as e:
+                        logger.error(f"记录搜索结果日志时发生异常: {str(e)}")
+                        logger.debug(f"创建搜索结果: 类型={type(result)}, 书名='获取失败'")
                     results.append(result)
                         
                 except Exception as e:

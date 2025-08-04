@@ -191,27 +191,36 @@ class NovelService:
                 filtered_count += 1
                 continue
                 
-            logger.debug(f"处理结果 {i+1}: 书名='{result.bookName}', 作者='{result.author}', URL='{result.url}'")
-            
-            # 1. 过滤明显异常的结果
-            if not self._is_valid_result(result):
-                filtered_count += 1
-                logger.debug(f"过滤无效结果: {result.bookName} - {result.url}")
-                continue
+            try:
+                logger.debug(f"处理结果 {i+1}: 书名='{result.bookName}', 作者='{result.author}', URL='{result.url}'")
                 
-            # 2. 计算相关性得分
-            relevance_score = self._calculate_relevance_score(result, keyword)
-            logger.debug(f"结果 '{result.bookName}' 的相关性得分: {relevance_score:.3f}")
-            
-            # 3. 只保留相关性得分大于阈值的结果 (进一步降低阈值)
-            if relevance_score > 0.01:  # 进一步降低阈值从0.05到0.01
-                # 将得分存储在结果中用于排序
-                result.score = relevance_score
-                valid_results.append(result)
-                logger.debug(f"保留结果: {result.bookName} (得分: {relevance_score:.3f})")
-            else:
-                low_relevance_count += 1
-                logger.debug(f"过滤低相关性结果: {result.bookName} (得分: {relevance_score:.3f})")
+                # 1. 过滤明显异常的结果
+                if not self._is_valid_result(result):
+                    filtered_count += 1
+                    logger.debug(f"过滤无效结果: {result.bookName} - {result.url}")
+                    continue
+                    
+                # 2. 计算相关性得分
+                relevance_score = self._calculate_relevance_score(result, keyword)
+                logger.debug(f"结果 '{result.bookName}' 的相关性得分: {relevance_score:.3f}")
+                
+                # 3. 只保留相关性得分大于阈值的结果 (进一步降低阈值)
+                if relevance_score > 0.01:  # 进一步降低阈值从0.05到0.01
+                    # 将得分存储在结果中用于排序
+                    result.score = relevance_score
+                    valid_results.append(result)
+                    logger.debug(f"保留结果: {result.bookName} (得分: {relevance_score:.3f})")
+                else:
+                    low_relevance_count += 1
+                    logger.debug(f"过滤低相关性结果: {result.bookName} (得分: {relevance_score:.3f})")
+            except AttributeError as e:
+                logger.error(f"结果 {i+1} 缺少必要属性: {str(e)}")
+                filtered_count += 1
+                continue
+            except Exception as e:
+                logger.error(f"处理结果 {i+1} 时发生异常: {str(e)}")
+                filtered_count += 1
+                continue
         
         logger.info(f"结果过滤统计 - 原始: {len(results)}, 无效: {filtered_count}, 低相关性: {low_relevance_count}, 保留: {len(valid_results)}")
         
@@ -233,30 +242,37 @@ class NovelService:
         Returns:
             是否为有效结果
         """
-        # 检查书名是否有效
-        if not result.bookName or len(result.bookName.strip()) < 1:
-            logger.debug(f"书名无效: '{result.bookName}'")
-            return False
+        try:
+            # 检查书名是否有效
+            if not result.bookName or len(result.bookName.strip()) < 1:
+                logger.debug(f"书名无效: '{result.bookName}'")
+                return False
+                
+            # 暂时禁用乱码检测，因为逻辑有问题
+            # TODO: 改进乱码检测逻辑
+            # invalid_chars = result.bookName.count('?') + result.bookName.count('')
+            # if invalid_chars > len(result.bookName) * 0.7:
+            #     logger.debug(f"包含过多乱码字符: '{result.bookName}' (乱码字符比例: {invalid_chars/len(result.bookName):.1%})")
+            #     return False
+                
+            # 检查URL是否有效
+            if not result.url:
+                logger.debug(f"URL为空: '{result.bookName}'")
+                return False
             
-        # 暂时禁用乱码检测，因为逻辑有问题
-        # TODO: 改进乱码检测逻辑
-        # invalid_chars = result.bookName.count('?') + result.bookName.count('')
-        # if invalid_chars > len(result.bookName) * 0.7:
-        #     logger.debug(f"包含过多乱码字符: '{result.bookName}' (乱码字符比例: {invalid_chars/len(result.bookName):.1%})")
-        #     return False
-            
-        # 检查URL是否有效
-        if not result.url:
-            logger.debug(f"URL为空: '{result.bookName}'")
+            # 检查URL格式
+            url_lower = result.url.lower()
+            if not any(indicator in url_lower for indicator in ['http', '.com', '.net', '.org', '.cn', '/']):
+                logger.debug(f"URL格式无效: '{result.url}'")
+                return False
+                
+            return True
+        except AttributeError as e:
+            logger.error(f"检查结果有效性时缺少必要属性: {str(e)}")
             return False
-        
-        # 检查URL格式
-        url_lower = result.url.lower()
-        if not any(indicator in url_lower for indicator in ['http', '.com', '.net', '.org', '.cn', '/']):
-            logger.debug(f"URL格式无效: '{result.url}'")
+        except Exception as e:
+            logger.error(f"检查结果有效性时发生异常: {str(e)}")
             return False
-            
-        return True
     
     def _calculate_relevance_score(self, result: SearchResult, keyword: str) -> float:
         """计算搜索结果的相关性得分 (改进版)
@@ -268,59 +284,66 @@ class NovelService:
         Returns:
             相关性得分 (0-1之间)
         """
-        score = 0.0
-        keyword_clean = self._clean_text(keyword)
-        
-        # 1. 书名匹配得分 (权重: 0.6)
-        if result.bookName:
-            book_name_clean = self._clean_text(result.bookName)
+        try:
+            score = 0.0
+            keyword_clean = self._clean_text(keyword)
             
-            # 完全匹配 - 最高分
-            if keyword_clean == book_name_clean:
-                score += 0.6
-            # 包含关键词 - 高分
-            elif keyword_clean in book_name_clean:
-                # 根据匹配长度给分
-                match_ratio = len(keyword_clean) / len(book_name_clean)
-                score += 0.4 + (0.2 * match_ratio)
-            # 关键词包含在书名中
-            elif book_name_clean in keyword_clean:
-                score += 0.3
-            # 部分匹配 - 使用相似度算法
-            else:
-                similarity = self._calculate_similarity(keyword_clean, book_name_clean)
-                if similarity > 0.3:  # 只有相似度较高才给分
-                    score += similarity * 0.4
-        
-        # 2. 作者匹配得分 (权重: 0.3)
-        if result.author:
-            author_clean = self._clean_text(result.author)
+            # 1. 书名匹配得分 (权重: 0.6)
+            if result.bookName:
+                book_name_clean = self._clean_text(result.bookName)
+                
+                # 完全匹配 - 最高分
+                if keyword_clean == book_name_clean:
+                    score += 0.6
+                # 包含关键词 - 高分
+                elif keyword_clean in book_name_clean:
+                    # 根据匹配长度给分
+                    match_ratio = len(keyword_clean) / len(book_name_clean)
+                    score += 0.4 + (0.2 * match_ratio)
+                # 关键词包含在书名中
+                elif book_name_clean in keyword_clean:
+                    score += 0.3
+                # 部分匹配 - 使用相似度算法
+                else:
+                    similarity = self._calculate_similarity(keyword_clean, book_name_clean)
+                    if similarity > 0.3:  # 只有相似度较高才给分
+                        score += similarity * 0.4
             
-            # 完全匹配
-            if keyword_clean == author_clean:
-                score += 0.3
-            # 包含关键词
-            elif keyword_clean in author_clean or author_clean in keyword_clean:
-                score += 0.2
-            # 部分匹配
-            else:
-                similarity = self._calculate_similarity(keyword_clean, author_clean)
-                if similarity > 0.5:  # 作者匹配要求更高相似度
-                    score += similarity * 0.15
-        
-        # 3. 分类匹配得分 (权重: 0.1)
-        if result.category:
-            category_clean = self._clean_text(result.category)
-            if keyword_clean in category_clean:
-                score += 0.1
-        
-        # 4. 额外加分项
-        # 如果书名很短且匹配度高，给额外分数
-        if result.bookName and len(self._clean_text(result.bookName)) <= 6:
-            if keyword_clean in self._clean_text(result.bookName):
-                score += 0.1
-        
-        return min(score, 1.0)  # 确保得分不超过1
+            # 2. 作者匹配得分 (权重: 0.3)
+            if result.author:
+                author_clean = self._clean_text(result.author)
+                
+                # 完全匹配
+                if keyword_clean == author_clean:
+                    score += 0.3
+                # 包含关键词
+                elif keyword_clean in author_clean or author_clean in keyword_clean:
+                    score += 0.2
+                # 部分匹配
+                else:
+                    similarity = self._calculate_similarity(keyword_clean, author_clean)
+                    if similarity > 0.5:  # 作者匹配要求更高相似度
+                        score += similarity * 0.15
+            
+            # 3. 分类匹配得分 (权重: 0.1)
+            if result.category:
+                category_clean = self._clean_text(result.category)
+                if keyword_clean in category_clean:
+                    score += 0.1
+            
+            # 4. 额外加分项
+            # 如果书名很短且匹配度高，给额外分数
+            if result.bookName and len(self._clean_text(result.bookName)) <= 6:
+                if keyword_clean in self._clean_text(result.bookName):
+                    score += 0.1
+            
+            return min(score, 1.0)  # 确保得分不超过1
+        except AttributeError as e:
+            logger.error(f"计算相关性得分时缺少必要属性: {str(e)}")
+            return 0.0
+        except Exception as e:
+            logger.error(f"计算相关性得分时发生异常: {str(e)}")
+            return 0.0
     
     def _clean_text(self, text: str) -> str:
         """清理文本，用于匹配比较
