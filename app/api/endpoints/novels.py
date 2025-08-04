@@ -1,4 +1,5 @@
 import logging
+import os
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -34,19 +35,21 @@ async def search_novels(
         logger.info(f"开始搜索小说，关键词：{keyword}，maxResults={maxResults}")
         results = await novel_service.search(keyword, max_results=maxResults)
         logger.info(f"搜索完成，找到 {len(results)} 条结果")
-        
+
         # 尝试序列化结果，如果出现bookName错误则跳过有问题的结果
         try:
             return {"code": 200, "message": "success", "data": results}
         except AttributeError as e:
             if "bookName" in str(e):
-                logger.warning(f"搜索结果序列化时出现bookName错误，跳过有问题的结果: {str(e)}")
+                logger.warning(
+                    f"搜索结果序列化时出现bookName错误，跳过有问题的结果: {str(e)}"
+                )
                 # 过滤掉有问题的结果
                 filtered_results = []
                 for result in results:
                     try:
                         # 尝试访问bookName属性，如果失败则跳过
-                        _ = getattr(result, 'bookName', None)
+                        _ = getattr(result, "bookName", None)
                         filtered_results.append(result)
                     except AttributeError:
                         logger.warning(f"跳过有bookName问题的搜索结果")
@@ -129,37 +132,35 @@ async def download_novel(
     try:
         logger.info(f"开始下载小说，URL：{url}，书源ID：{sourceId}，格式：{format}")
 
-        # 获取小说信息
-        book = await novel_service.get_book_detail(url, sourceId)
-        if not book:
-            raise HTTPException(status_code=404, detail="小说不存在")
+        # 异步下载小说
+        file_path = await novel_service.download(url, sourceId, format)
 
-        # 获取目录
-        toc = await novel_service.get_toc(url, sourceId)
-        if not toc:
-            raise HTTPException(status_code=404, detail="小说目录为空")
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=500, detail="文件生成失败")
 
-        # 生成文件名
-        filename = f"{book.title}_{book.author}.{format}"
-        filename = "".join(
-            c for c in filename if c.isalnum() or c in (" ", "-", "_")
-        ).rstrip()
+        # 获取文件信息
+        from pathlib import Path
 
-        # 创建下载任务
-        download_task = novel_service.download_novel(book, toc, format, filename)
+        file_obj = Path(file_path)
+        filename = file_obj.name
 
-        # 添加到后台任务
-        background_tasks.add_task(download_task)
+        # 返回文件流
+        import urllib.parse
 
-        return {
-            "code": 200,
-            "message": "下载任务已启动",
-            "data": {
-                "filename": filename,
-                "total_chapters": len(toc),
-                "format": format,
+        from fastapi.responses import StreamingResponse
+
+        # 对文件名进行URL编码，解决中文字符问题
+        encoded_filename = urllib.parse.quote(filename, safe="")
+
+        return StreamingResponse(
+            open(file_path, "rb"),
+            media_type="application/octet-stream",
+            headers={
+                # 使用RFC 5987标准格式，支持UTF-8编码的文件名
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition",
             },
-        }
+        )
     except HTTPException:
         raise
     except Exception as e:
