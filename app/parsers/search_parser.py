@@ -355,6 +355,9 @@ class SearchParser:
             except Exception as e:
                 logger.warning(f"解析搜索结果失败: {str(e)}")
                 return None
+        except Exception as e:
+            logger.warning(f"解析单个搜索结果失败: {str(e)}")
+            return None
 
     def _extract_text(self, element: BeautifulSoup, selector: str) -> str:
         """提取文本内容
