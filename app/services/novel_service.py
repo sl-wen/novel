@@ -375,7 +375,7 @@ class NovelService:
         import re
 
         text = re.sub(
-            r'[，。！？；：""' "（）【】《》\s\-_\[\]()]+",
+            r'[，。！？；：""''（）【】《》\s\-_\[\]()]+',
             "",
             text,
             flags=re.UNICODE,
