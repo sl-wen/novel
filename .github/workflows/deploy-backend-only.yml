@@ -73,6 +73,7 @@ jobs:
           fi
           
           if timeout 30 git fetch origin --prune; then
+            git fetch origin
             git reset --hard origin/master
             git checkout master
             git clean -fd
