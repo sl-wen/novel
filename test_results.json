@@ -1,0 +1,1533 @@
+{
+  "health": {
+    "status": "success",
+    "status_code": 200,
+    "response": {
+      "code": 200,
+      "message": "API服务正常运行",
+      "data": {
+        "status": "healthy",
+        "sources_count": 20,
+        "external_connectivity": "connected",
+        "timestamp": 1754313312.8544922
+      }
+    }
+  },
+  "sources": {
+    "status": "success",
+    "status_code": 200,
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": [
+        {
+          "id": 1,
+          "rule": {
+            "id": 1,
+            "name": "香书小说",
+            "url": "http://www.xbiqugu.la/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "http://www.xbiqugu.la/modules/article/waps.php",
+              "method": "post",
+              "data": "{searchkey: %s}",
+              "list": "#checkform > table > tbody > tr",
+              "name": "td.even > a",
+              "author": "td:nth-of-type(3)",
+              "category": "",
+              "latest": "td.odd > a",
+              "update": "td:nth-of-type(4)",
+              "status": "",
+              "word_count": "",
+              "baseUri": "http://www.xbiqugu.la/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "",
+              "update": "",
+              "status": "",
+              "word_count": "",
+              "baseUri": "http://www.xbiqugu.la/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "#list > dl > dd > a",
+              "title": "",
+              "url": "",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "http://www.xbiqugu.la/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".bookname > h1",
+              "content": "#content",
+              "ad_patterns": [
+                "一秒记住【文学巴士&nbsp;】，精彩无弹窗免费阅读！",
+                "(www.xbiquge.la 新笔趣阁)，高速全文字在线阅读！",
+                "天才一秒记住本站地址：.+。手机版阅读网址：m.",
+                "手机用户请浏览阅读，更优质的阅读体验。",
+                "天才壹秒記住.+，為您提供精彩小說閱讀。",
+                "\\(本章完\\)"
+              ],
+              "baseUri": "http://www.xbiqugu.la/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 2,
+          "rule": {
+            "id": 2,
+            "name": "书海阁小说网",
+            "url": "https://www.shuhaige.net/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.shuhaige.net/search.html",
+              "method": "post",
+              "data": "{searchkey: %s, searchtype: all}",
+              "list": "#sitembox > dl",
+              "name": "dd > h3 > a",
+              "author": "dd:nth-child(3) > span:nth-child(1)",
+              "category": "dd:nth-child(3) > span:nth-child(3)",
+              "latest": "dd:nth-child(5) > a",
+              "update": "dd:nth-child(5) > span",
+              "status": "dd:nth-child(3) > span:nth-child(2)",
+              "word_count": "dd:nth-child(3) > span:nth-child(4)",
+              "baseUri": "https://www.shuhaige.net/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "#intro > p:nth-child(1)",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "meta[property=\"og:novel:status\"]",
+              "word_count": "",
+              "baseUri": "https://www.shuhaige.net/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "#list > dl > dd > a",
+              "title": "",
+              "url": "",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "https://www.shuhaige.net/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".bookname > h1",
+              "content": "#content",
+              "ad_patterns": [
+                "本小章还未完，请点击下一页继续阅读后面精彩内容！",
+                "小主，这个章节后面还有哦，请点击下一页继续阅读，后面更精彩！",
+                "这章没有结束，请点击下一页继续阅读！",
+                "喜欢.*?请大家收藏：(.*?).*?书海阁小说网更新速度全网最快。",
+                "\\(本章完\\)"
+              ],
+              "baseUri": "https://www.shuhaige.net/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 3,
+          "rule": {
+            "id": 3,
+            "name": "梦书中文",
+            "url": "http://www.mcxs.info/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "http://www.mcxs.info/search.html",
+              "method": "post",
+              "data": "{name: %s}",
+              "list": ".novelslist2 > ul > li",
+              "name": "span.s2.wid > a",
+              "author": "span.s4.wid > a",
+              "category": "",
+              "latest": "span.s3.wid3 > a",
+              "update": "span.s6.wid6",
+              "status": "",
+              "word_count": "",
+              "baseUri": "http://www.mcxs.info/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "",
+              "word_count": "",
+              "baseUri": "http://www.mcxs.info/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "#list > dl > dd > a",
+              "title": "",
+              "url": "",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "http://www.mcxs.info/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".bookname > h1",
+              "content": "#content",
+              "ad_patterns": [
+                "天才一秒记住本站地址：[.+] .+最快更新！无广告！",
+                "(.+)，高速全文字在线阅读！",
+                "一秒记住【.+】，精彩无弹窗免费阅读！",
+                "《.+》.+全文字更新，牢记网址：([a-zA-Z0-9-]+(\\.[a-zA-Z0-9-]+)*\\.[a-zA-Z]{2,})",
+                "\\(本章完\\)"
+              ],
+              "baseUri": "http://www.mcxs.info/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 4,
+          "rule": {
+            "id": 4,
+            "name": "鸟书网",
+            "url": "http://www.99xs.info/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "http://www.99xs.info/read/search/",
+              "method": "post",
+              "data": "{searchkey: %s}",
+              "list": "div.wrap > div > div > div",
+              "name": "div.bookinfo > h4 > a",
+              "author": "div.bookinfo > div.author",
+              "category": "",
+              "latest": "div.bookinfo > div.update > a",
+              "update": "",
+              "status": "",
+              "word_count": "",
+              "baseUri": "http://www.99xs.info/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "meta[property=\"og:novel:status\"]",
+              "word_count": "",
+              "baseUri": "http://www.99xs.info/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "div.listmain > dl > dd > a",
+              "title": "",
+              "url": "",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "http://www.99xs.info/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".content > h1",
+              "content": "#content",
+              "ad_patterns": [
+                "请记住本书首发域名：.+。鸟书网手机版阅读网址：.+",
+                "7017k",
+                "\\(本章完\\)"
+              ],
+              "baseUri": "http://www.99xs.info/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 5,
+          "rule": {
+            "id": 5,
+            "name": "新天禧小说",
+            "url": "https://www.tianxibook.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.sososhu.com/?q=%s&site=xtxxs",
+              "method": "get",
+              "data": "{}",
+              "list": "body > div.wrap > div > div > div",
+              "name": "dl > dt > a",
+              "author": "dl > dt > span",
+              "category": "",
+              "latest": "",
+              "update": "",
+              "status": "",
+              "word_count": "",
+              "baseUri": "https://www.tianxibook.com/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "meta[property=\"og:novel:status\"]",
+              "word_count": "",
+              "baseUri": "https://www.tianxibook.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "#content_1 > a",
+              "title": "",
+              "url": "https://www.tianxibook.com/xiaoshuo/%s/",
+              "has_pages": true,
+              "next_page": "#indexselect > option",
+              "baseUri": "https://www.tianxibook.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": "#wrapper > article > h1",
+              "content": "#booktxt",
+              "ad_patterns": [
+                "首发网址.+。",
+                "\\(本章完\\)",
+                "一秒记住【新天禧小说\\s*】手机用户输入地址：www\\s*\\.xtxxs\\s*\\.com",
+                "支持（新天禧小说\\s*）把本站分享那些需要的小伙伴！找不到书请留言！",
+                "搜.+免费看精品文学"
+              ],
+              "baseUri": "https://www.tianxibook.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 6,
+          "rule": {
+            "id": 6,
+            "name": "全本小说网",
+            "url": "https://quanben5.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://quanben5.com/search.html/?keywords=%s&a=search.json&b=%s&c=book&callback=search",
+              "method": "get",
+              "data": "{}",
+              "list": ".pic_txt_list",
+              "name": "h3 > a",
+              "author": "p.info > span",
+              "category": "",
+              "latest": "",
+              "update": "",
+              "status": "",
+              "word_count": "",
+              "baseUri": "https://quanben5.com/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "h3 > span",
+              "author": "body > div.row > div > div:nth-child(1) > div.pic_txt_list > p:nth-child(3) > span",
+              "intro": "body > div.row > div > div:nth-child(1) > div.description",
+              "category": "body > div.row > div > div:nth-child(1) > div.pic_txt_list > p:nth-child(4) > span",
+              "cover": "body > div.row > div > div:nth-child(1) > div.pic_txt_list > div > img",
+              "latest": "",
+              "update": "",
+              "status": "body > div.row > div > div:nth-child(1) > div.pic_txt_list > p:nth-child(5) > span",
+              "word_count": "",
+              "baseUri": "https://quanben5.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "ul > li > a",
+              "title": "",
+              "url": "https://quanben5.com/n/%s/xiaoshuo.html",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "https://quanben5.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".content > h1",
+              "content": "#content",
+              "ad_patterns": [
+                "\\(本章完\\)"
+              ],
+              "baseUri": "https://quanben5.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 7,
+          "rule": {
+            "id": 7,
+            "name": "69书吧1",
+            "url": "https://www.69shuba.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "meta[property=\"og:novel:status\"]",
+              "word_count": "",
+              "baseUri": "https://www.69shuba.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "#catalog > ul > li > a",
+              "title": "",
+              "url": "https://69shuba.com/book/%s/",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "https://www.69shuba.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".txtnav > h1",
+              "content": ".txtnav",
+              "ad_patterns": [
+                "无一错一首一发一内一容一在一6一9一书一吧一看！",
+                "\\(本章完\\)",
+                "最⊥新⊥小⊥说⊥在⊥六⊥9⊥⊥书⊥⊥吧⊥⊥首⊥发！"
+              ],
+              "baseUri": "https://www.69shuba.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 8,
+          "rule": {
+            "id": 8,
+            "name": "大熊猫文学",
+            "url": "https://www.dxmwx.org/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.dxmwx.org/list/topall_%s.html",
+              "method": "get",
+              "data": "{}",
+              "list": "#ListContents > div",
+              "name": ".margin0h5 > a.fonttext",
+              "author": ".margin0h5 > a:nth-child(2)",
+              "category": "",
+              "latest": ".right_wid > div:nth-child(4) > a",
+              "update": ".right_wid > div:nth-child(4) > span",
+              "status": "",
+              "word_count": "",
+              "baseUri": "https://www.dxmwx.org/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "meta[property=\"og:novel:status\"]",
+              "word_count": "",
+              "baseUri": "https://www.dxmwx.org/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "div:nth-child(2n+5) > span > a",
+              "title": "",
+              "url": "https://www.dxmwx.org/chapter/%s.html",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "https://www.dxmwx.org/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": "#ChapterTitle",
+              "content": "#Lab_Contents",
+              "ad_patterns": [
+                "\\(本章完\\)"
+              ],
+              "baseUri": "https://www.dxmwx.org/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 9,
+          "rule": {
+            "id": 9,
+            "name": "笔趣阁22",
+            "url": "https://www.22biqu.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.22biqu.com/ss/",
+              "method": "post",
+              "data": "{searchkey: %s, Submit: 搜索}",
+              "list": "body > div.container > div > div > ul > li",
+              "name": "span.s2 > a",
+              "author": "span.s4",
+              "category": "span.s1",
+              "latest": "span.s3",
+              "update": "span.s5",
+              "status": "",
+              "word_count": "",
+              "baseUri": "https://www.22biqu.com/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "meta[property=\"og:novel:lastest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "",
+              "word_count": "",
+              "baseUri": "https://www.22biqu.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "div:nth-child(4) > ul > li > a",
+              "title": "",
+              "url": "",
+              "has_pages": true,
+              "next_page": "#indexselect > option",
+              "baseUri": "https://www.22biqu.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".title",
+              "content": "#content",
+              "ad_patterns": [
+                "\\(本章完\\)"
+              ],
+              "baseUri": "https://www.22biqu.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 10,
+          "rule": {
+            "id": 10,
+            "name": "笔尖中文",
+            "url": "http://www.xbiquzw.net/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "http://www.xbiquzw.net/modules/article/search.php",
+              "method": "post",
+              "data": "{searchkey: %s}",
+              "list": "#wrapper > table > tbody > tr",
+              "name": "td:nth-child(1) > a",
+              "author": "td:nth-child(3)",
+              "category": "",
+              "latest": "td:nth-child(2)",
+              "update": "td:nth-child(5)",
+              "status": "",
+              "word_count": "",
+              "baseUri": "http://www.xbiquzw.net/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "",
+              "word_count": "",
+              "baseUri": "http://www.xbiquzw.net/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "#list > dl > dd > a",
+              "title": "",
+              "url": "",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "http://www.xbiquzw.net/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".bookname > h1",
+              "content": "#content",
+              "ad_patterns": [
+                "<!--.*?-->",
+                "喜欢.+请大家收藏：.+",
+                "\\(本章完\\)"
+              ],
+              "baseUri": "http://www.xbiquzw.net/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 11,
+          "rule": {
+            "id": 11,
+            "name": "零点小说",
+            "url": "https://www.0xs.net/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.0xs.net/search.html?kw=%s",
+              "method": "get",
+              "data": "{}",
+              "list": ".result_list > ul > li > .book",
+              "name": ".name > a",
+              "author": ".author",
+              "category": ".type",
+              "latest": "",
+              "update": "",
+              "status": ".serial",
+              "word_count": ".count",
+              "baseUri": "https://www.0xs.net/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "meta[property=\"og:novel:status\"]",
+              "word_count": "",
+              "baseUri": "https://www.0xs.net/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": ".catalog > div > ul > ul > li > a",
+              "title": "",
+              "url": "https://www.0xs.net/list/%s.html",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "https://www.0xs.net/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".title > h1@js:r=r.replace(/\\(\\d+\\/\\d+\\)/, '');",
+              "content": ".content",
+              "ad_patterns": [
+                "【[^】]+】小说免费阅读，请收藏[^【】]*【[^】]+】",
+                "本章未完，点击\\[下一页]继续阅读--",
+                "\\(本章完\\)"
+              ],
+              "baseUri": "https://www.0xs.net/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 12,
+          "rule": {
+            "id": 12,
+            "name": "得奇小说网",
+            "url": "https://www.deqixs.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.deqixs.com/tag/?key=%s",
+              "method": "get",
+              "data": "{}",
+              "list": ".container > div",
+              "name": "div > h3 > a",
+              "author": "div > p:nth-child(3)",
+              "category": "",
+              "latest": "div > ul > li:nth-child(1) > a",
+              "update": "div > ul > li:nth-child(1) > i",
+              "status": "",
+              "word_count": "",
+              "baseUri": "https://www.deqixs.com/",
+              "timeout": 10
+            },
+            "book": {
+              "name": ".item > div > h1 > a",
+              "author": ".item > div > p:nth-child(3) > a@js:r=r.replaceAll('作者：', '');",
+              "intro": "//div[@class='des bb'][1]",
+              "category": ".item > div > p:nth-child(2) > span:nth-child(2)",
+              "cover": ".item > a > img",
+              "latest": ".item > div > ul > li:nth-child(1) > a",
+              "update": ".item > div > ul > li:nth-child(1) > i",
+              "status": ".item > div > p:nth-child(2) > span:nth-child(1)",
+              "word_count": "",
+              "baseUri": "https://www.deqixs.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "#list > ul > li > a",
+              "title": "",
+              "url": "",
+              "has_pages": true,
+              "next_page": "#pages > .gr",
+              "baseUri": "https://www.deqixs.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".submenu > h1",
+              "content": ".con",
+              "ad_patterns": [
+                "\\(本章完\\)"
+              ],
+              "baseUri": "https://www.deqixs.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 13,
+          "rule": {
+            "id": 13,
+            "name": "新笔趣阁6",
+            "url": "https://www.xbqg06.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.xbqg06.com/search/",
+              "method": "post",
+              "data": "{type: articlename, searchkey: %s}",
+              "list": ".container > div > div > ul > li",
+              "name": "span.s2 > a",
+              "author": "span.s4",
+              "category": "",
+              "latest": "span.s3 > a",
+              "update": "span.s5",
+              "status": "",
+              "word_count": "",
+              "baseUri": "https://www.xbqg06.com/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": ".desc.m-desc",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": ".imgbox > img",
+              "latest": "meta[property=\"og:novel:lastest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "meta[property=\"og:novel:status\"]",
+              "word_count": "",
+              "baseUri": "https://www.xbqg06.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": ".row.row-section > div > div:nth-child(4) > ul > li > a",
+              "title": "",
+              "url": "",
+              "has_pages": true,
+              "next_page": "#indexselect > option",
+              "baseUri": "https://www.xbqg06.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".reader-main > h1@js:r=r.replace(/（\\d+\\s*\\/\\s*\\d+）/, '');",
+              "content": "#content",
+              "ad_patterns": [
+                "\\(本章完\\)"
+              ],
+              "baseUri": "https://www.xbqg06.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 14,
+          "rule": {
+            "id": 14,
+            "name": "略更网",
+            "url": "https://www.luegeng.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.luegeng.com/search/?searchkey=%s",
+              "method": "get",
+              "data": "{}",
+              "list": ".content > dl",
+              "name": "dt > a",
+              "author": "dd > a",
+              "category": "",
+              "latest": "",
+              "update": "",
+              "status": "dd:nth-child(4) > span:nth-child(2)",
+              "word_count": "dd:nth-child(4) > span:nth-child(3)",
+              "baseUri": "https://www.luegeng.com/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": ".left > div > a > img",
+              "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "meta[property=\"og:novel:status\"]",
+              "word_count": "",
+              "baseUri": "https://www.luegeng.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": ".all > ul > li > a",
+              "title": "",
+              "url": "",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "https://www.luegeng.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".active",
+              "content": "#booktxt",
+              "ad_patterns": [
+                "\\(本章完\\)"
+              ],
+              "baseUri": "https://www.luegeng.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 15,
+          "rule": {
+            "id": 15,
+            "name": "96读书",
+            "url": "https://www.96dushu.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.96dushu.com/modules/article/search.php",
+              "method": "post",
+              "data": "{searchkey: %s}",
+              "list": "#nr",
+              "name": "dd:nth-child(2) > h3 > a",
+              "author": "dd:nth-child(3) > span:nth-child(1)",
+              "category": "dt > span",
+              "latest": "dd:nth-child(5) > a",
+              "update": "dd:nth-child(2) > h3 > span",
+              "status": "dd:nth-child(3) > span:nth-child(2)",
+              "word_count": "",
+              "baseUri": "https://www.96dushu.com/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[property=\"og:description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "meta[property=\"og:novel:status\"]",
+              "word_count": "",
+              "baseUri": "https://www.96dushu.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "#chapterList > li > a",
+              "title": "",
+              "url": "",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "https://www.96dushu.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": "#mlfy_main_text > h1",
+              "content": "#content",
+              "ad_patterns": [
+                "\\((继续下一页",
+                "本章完)\\)"
+              ],
+              "baseUri": "https://www.96dushu.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 16,
+          "rule": {
+            "id": 16,
+            "name": "速读谷",
+            "url": "https://www.sudugu.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.sudugu.com/i/sor.aspx?key=%s",
+              "method": "get",
+              "data": "{}",
+              "list": ".container > div",
+              "name": "div > h3 > a",
+              "author": "div > p:nth-child(3)",
+              "category": "",
+              "latest": "div > ul > li:nth-child(1) > a",
+              "update": "div > ul > li:nth-child(1) > i",
+              "status": "",
+              "word_count": "",
+              "baseUri": "https://www.sudugu.com/",
+              "timeout": 10
+            },
+            "book": {
+              "name": ".item > div > h1 > a",
+              "author": ".item > div > p:nth-child(3) > a",
+              "intro": "//div[@class='des bb'][1]",
+              "category": ".item > div > p:nth-child(2) > span:nth-child(2)",
+              "cover": ".item > a > img",
+              "latest": ".item > div > ul > li:nth-child(1) > a",
+              "update": ".item > div > ul > li:nth-child(1) > i",
+              "status": ".item > div > p:nth-child(2) > span:nth-child(1)",
+              "word_count": "",
+              "baseUri": "https://www.sudugu.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "#list > ul > li > a",
+              "title": "",
+              "url": "",
+              "has_pages": true,
+              "next_page": "#pages > .gr",
+              "baseUri": "https://www.sudugu.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".submenu > h1",
+              "content": ".con",
+              "ad_patterns": [
+                "\\(本章完\\)"
+              ],
+              "baseUri": "https://www.sudugu.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 17,
+          "rule": {
+            "id": 17,
+            "name": "八一中文网",
+            "url": "http://www.81zwwww.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "http://www.81zwwww.com/search/",
+              "method": "post",
+              "data": "{searchkey: %s, Submit: ''}",
+              "list": ".mb20 > div > div",
+              "name": ".commend-title > a",
+              "author": ".commend-title > span",
+              "category": "",
+              "latest": "",
+              "update": "",
+              "status": "",
+              "word_count": "",
+              "baseUri": "http://www.81zwwww.com/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": ".info-main-intro > p",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": ".info-main-wap > a > p@js:r=r.replaceAll('最新章节：','');",
+              "update": "meta[property=\"og:novel:update_time\"]",
+              "status": "",
+              "word_count": "",
+              "baseUri": "http://www.81zwwww.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "body > div.container.border3-2.mt8.mb20 > div.info-chapters.flex.flex-wrap > a",
+              "title": "",
+              "url": "",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "http://www.81zwwww.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": ".reader-main > h1@js:r=r.replace(/（\\d+ \\/ \\d+）/, '');",
+              "content": "#article",
+              "ad_patterns": [
+                "\\(本章完\\)",
+                "最近转码严重，让我们更有动力，更新更快，麻烦你动动小手退出阅读模式。谢谢"
+              ],
+              "baseUri": "http://www.81zwwww.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 18,
+          "rule": {
+            "id": 18,
+            "name": "悠久小说网",
+            "url": "http://www.ujxsw.org/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "http://www.ujxsw.org/searchbooks.php",
+              "method": "post",
+              "data": "{searchkey: %s}",
+              "list": "#main > div.shuku_list > div.shulist > ul",
+              "name": "li.three > a",
+              "author": "li.four > a",
+              "category": "li.two",
+              "latest": "li.three > span > a",
+              "update": "li.five",
+              "status": "li.six",
+              "word_count": "",
+              "baseUri": "http://www.ujxsw.org/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "#maininfo > div.coverecom.w_770.left > div.tabstit > a:nth-child(4)",
+              "author": "#bookinfo > div.bookright > div.d_title > h1 > em > a",
+              "intro": "#bookintro",
+              "category": "#count > span:nth-child(1)",
+              "cover": "",
+              "latest": "#bookinfo > div.bookright > div.new > span.new_t > a",
+              "update": "#bookinfo > div.bookright > div.new > span.new_p",
+              "status": "",
+              "word_count": "#count > span:nth-child(5)",
+              "baseUri": "http://www.ujxsw.org/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "#readerlist > ul > li > a",
+              "title": "",
+              "url": "http://www.ujxsw.org/read/%s/",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "http://www.ujxsw.org/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": "#mlfy_main_text > h3",
+              "content": "#mlfy_main_text > div.read-content > p",
+              "ad_patterns": [
+                "【悠久小説網ωωω.ＵＪХＳw.ｎｅｔ】，免费小说无弹窗免费阅读！",
+                "佰度搜索 【悠久小說網 ＷＷＷ.ＵＪХＳw．ＮＥＴ】 全集TXT电子书免费下载！",
+                "《.*》悠久小说网全文字更新,牢记网址:www.ujxsw.org",
+                "1秒记住网："
+              ],
+              "baseUri": "http://www.ujxsw.org/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 19,
+          "rule": {
+            "id": 19,
+            "name": "阅读库",
+            "url": "http://www.yeudusk.com/",
+            "enabled": true,
+            "type": "html",
+            "language": "zh_CN",
+            "search": {
+              "url": "http://www.yeudusk.com/modules/article/search.php?q=%s",
+              "method": "get",
+              "data": "{}",
+              "list": "#jieqi_page_contents > div > div:nth-child(2)",
+              "name": "div:nth-child(1) > span > a",
+              "author": "div:nth-child(2) > span:nth-child(2)",
+              "category": "div:nth-child(2) > span:nth-child(4)",
+              "latest": "div:nth-child(4) > span:nth-child(2) > a",
+              "update": "div:nth-child(4) > span:nth-child(4)",
+              "status": "span:nth-child(8)",
+              "word_count": "",
+              "baseUri": "http://www.yeudusk.com/",
+              "timeout": 10
+            },
+            "book": {
+              "name": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "#content > div.divbox.cf > div:nth-child(2) > div:nth-child(3) > div.tabcontent > div:nth-child(1) > div",
+              "category": "meta[property=\"og:novel:category\"]",
+              "cover": "meta[property=\"og:image\"]",
+              "latest": "#content > div:nth-child(4) > h3",
+              "update": "",
+              "status": "meta[property=\"og:novel:status\"]",
+              "word_count": "",
+              "baseUri": "http://www.yeudusk.com/",
+              "timeout": 10
+            },
+            "toc": {
+              "list": "ul > li > a",
+              "title": "",
+              "url": "http://www.yeudusk.com/html/0/%s/",
+              "has_pages": false,
+              "next_page": "",
+              "baseUri": "http://www.yeudusk.com/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": "#cont > h1",
+              "content": "#clickeye_content",
+              "ad_patterns": [
+                "\\(阅读库\\s?www\\.yeudusk\\.com\\)",
+                "阅读库 www.yeudusk.comyeudusk www.yeudusk.com",
+                "《.+》阅读库全文字更新,牢记网址:www\\.yeudusk\\.com"
+              ],
+              "baseUri": "http://www.yeudusk.com/",
+              "timeout": 10
+            }
+          }
+        },
+        {
+          "id": 20,
+          "rule": {
+            "id": 20,
+            "url": "https://www.wxsy.net/",
+            "name": "顶点小说",
+            "comment": "搜索、详情、章节限流、正文段落js加密",
+            "type": "",
+            "language": "zh_CN",
+            "search": {
+              "url": "https://www.wxsy.net/search.html",
+              "method": "post",
+              "data": "{s: %s}",
+              "result": "body > div.container > div:nth-child(1) > div > ul > li",
+              "bookName": "span.s2 > a",
+              "author": "span.s3 > a",
+              "category": "span.s1",
+              "latestChapter": "span.s4 > a",
+              "lastUpdateTime": "span.s5",
+              "baseUri": "https://www.wxsy.net/",
+              "timeout": 10
+            },
+            "book": {
+              "url": "https://www.wxsy.net/novel/(.*?)/",
+              "bookName": "meta[property=\"og:novel:book_name\"]",
+              "author": "meta[property=\"og:novel:author\"]",
+              "intro": "meta[name=\"description\"]",
+              "category": "meta[property=\"og:novel:category\"]",
+              "coverUrl": "meta[property=\"og:image\"]",
+              "latestChapter": "meta[property=\"og:novel:latest_chapter_name\"]",
+              "lastUpdateTime": "meta[property=\"og:novel:update_time\"]",
+              "status": "meta[property=\"og:novel:status\"]",
+              "baseUri": "https://www.wxsy.net/",
+              "timeout": 10
+            },
+            "toc": {
+              "url": "https://www.wxsy.net/novel/%s/chapter_1.html",
+              "list": "/html@js:const childRegex=/\\.section-list\\.ycxsid>li:nth-child\\(\\d+\\){display:none}/g;const lastChildRegex=/\\.section-list\\.ycxsid>li:nth-last-child\\(\\d+\\){display:none}/g;const preHiddenCount=[...r.matchAll(childRegex)].length;const afterHiddenCount=[...r.matchAll(lastChildRegex)].length;r=r.replace(/<ul[^>]*class=\"[^\"]*\\bsection-list\\b[^\"]*\\bycxsid\\b[^\"]*\"[^>]*>([\\s\\S]*?)<\\/ul>/g,(match,liContent)=>{const lis=liContent.match(/<li[\\s\\S]*?<\\/li>/g)||[];const newLis=lis.slice(preHiddenCount,lis.length-afterHiddenCount);return match.replace(liContent,newLis.join(''))});",
+              "item": ".biqunaicc > div:nth-child(2) > div > ul > li > a",
+              "pagination": true,
+              "nextPage": ".biqunaicc > div:nth-child(2) > div > div:nth-child(2) > select > option",
+              "baseUri": "https://www.wxsy.net/",
+              "timeout": 15
+            },
+            "chapter": {
+              "title": "h3",
+              "content": ".row-detail > div > div@js:var qsbs={_keyStr:\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\",bb:function(input){var output=\"\",chr1,chr2,chr3,enc1,enc2,enc3,enc4,i=0;input=input.replace(/[^A-Za-z0-9+\\/=]/g,\"\");while(i<input.length){enc1=this._keyStr.indexOf(input.charAt(i++));enc2=this._keyStr.indexOf(input.charAt(i++));enc3=this._keyStr.indexOf(input.charAt(i++));enc4=this._keyStr.indexOf(input.charAt(i++));chr1=(enc1<<2)|(enc2>>4);chr2=((enc2&15)<<4)|(enc3>>2);chr3=((enc3&3)<<6)|enc4;output+=String.fromCharCode(chr1);if(enc3!=64)output+=String.fromCharCode(chr2);if(enc4!=64)output+=String.fromCharCode(chr3)}return this._utf8_decode(output)},_utf8_encode:function(string){string=string.replace(/\\r\\n/g,\"\\n\");var utftext=\"\";for(var n=0;n<string.length;n++){var c=string.charCodeAt(n);if(c<128){utftext+=String.fromCharCode(c)}else if(c<2048){utftext+=String.fromCharCode((c>>6)|192);utftext+=String.fromCharCode((c&63)|128)}else{utftext+=String.fromCharCode((c>>12)|224);utftext+=String.fromCharCode(((c>>6)&63)|128);utftext+=String.fromCharCode((c&63)|128)}}return utftext},_utf8_decode:function(utftext){var string=\"\",i=0,c=0,c1=0,c2=0,c3=0;while(i<utftext.length){c=utftext.charCodeAt(i);if(c<128){string+=String.fromCharCode(c);i++}else if(c<224){c2=utftext.charCodeAt(i+1);string+=String.fromCharCode(((c&31)<<6)|(c2&63));i+=2}else{c2=utftext.charCodeAt(i+1);c3=utftext.charCodeAt(i+2);string+=String.fromCharCode(((c&15)<<12)|((c2&63)<<6)|(c3&63));i+=3}}return string}};r=r.replace(/<script>\\s*document\\.writeln\\(qsbs\\.bb\\('([^']+)'\\)\\);\\s*<\\/script>/g,function(match,p1){return qsbs.bb(p1)});r=r.replace(/<p[^>]*?>相邻推荐:([\\s\\S]*?)<\\/p>/,'');",
+              "paragraphTagClosed": true,
+              "filterTxt": "请勿开启浏览器阅读模式，否则将导致章节内容缺失及无法阅读下一章。",
+              "filterTag": "h3 div",
+              "pagination": true,
+              "nextPage": ".row.row-detail > div > div > div:nth-child(2) > a:nth-child(4)",
+              "baseUri": "https://www.wxsy.net/",
+              "timeout": 10
+            }
+          }
+        }
+      ]
+    }
+  },
+  "search": {
+    "status": "success",
+    "status_code": 200,
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": [
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/94931673/",
+          "bookName": "斗破苍穹",
+          "author": "萧战萧敖",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.7
+        },
+        {
+          "sourceId": 8,
+          "sourceName": "大熊猫文学",
+          "url": "https://www.dxmwx.org/book/10409.html",
+          "bookName": "斗破苍穹",
+          "author": "天蚕土豆",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": "最新章节第一千六百二十三章  结束，也是开始。（大结局）",
+          "lastUpdateTime": "一年前",
+          "status": null,
+          "wordCount": null,
+          "score": 0.7
+        },
+        {
+          "sourceId": 11,
+          "sourceName": "零点小说",
+          "url": "https://www.0xs.net/txt/1.html",
+          "bookName": "斗破苍穹",
+          "author": "天蚕土豆",
+          "category": "玄幻",
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": "完结",
+          "wordCount": "532.65万字",
+          "score": 0.7
+        },
+        {
+          "sourceId": 12,
+          "sourceName": "得奇小说网",
+          "url": "https://www.deqixs.com/xiaoshuo/49/",
+          "bookName": "斗破苍穹",
+          "author": "作者：天蚕土豆",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": "土豆大结局感言",
+          "lastUpdateTime": "06-18",
+          "status": null,
+          "wordCount": null,
+          "score": 0.7
+        },
+        {
+          "sourceId": 16,
+          "sourceName": "速读谷",
+          "url": "https://www.sudugu.com/37/",
+          "bookName": "斗破苍穹",
+          "author": "作者：天蚕土豆",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": "土豆大结局感言",
+          "lastUpdateTime": "05-08",
+          "status": null,
+          "wordCount": null,
+          "score": 0.7
+        },
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/94657905/",
+          "bookName": "斗破：苍穹恋",
+          "author": "丹吉",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.66
+        },
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/94622981/",
+          "bookName": "穿越斗破苍穹",
+          "author": "午时一刻",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.6333333333333333
+        },
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/95107781/",
+          "bookName": "斗破苍穹年翻",
+          "author": "洛洛写作业",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.6333333333333333
+        },
+        {
+          "sourceId": 11,
+          "sourceName": "零点小说",
+          "url": "https://www.0xs.net/txt/90266.html",
+          "bookName": "穿越斗破苍穹",
+          "author": "午时一刻",
+          "category": "轻小说",
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": "完结",
+          "wordCount": "49.44万字",
+          "score": 0.6333333333333333
+        },
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/94562943/",
+          "bookName": "斗破苍穹,辰辰",
+          "author": "恒大半岛",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.5142857142857143
+        },
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/94503320/",
+          "bookName": "斗破苍穹：云韵传",
+          "author": "虐戮",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.5142857142857143
+        },
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/64323/",
+          "bookName": "斗破苍穹之水君",
+          "author": "滚键盘吧",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.5142857142857143
+        },
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/94237201/",
+          "bookName": "斗破苍穹之配角",
+          "author": "不归白狐",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.5142857142857143
+        },
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/94453171/",
+          "bookName": "斗破苍穹之伪装",
+          "author": "佐伯龙治",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.5142857142857143
+        },
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/94975279/",
+          "bookName": "斗破苍穹之凌霄",
+          "author": "正经训练家",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.5142857142857143
+        },
+        {
+          "sourceId": 8,
+          "sourceName": "大熊猫文学",
+          "url": "https://www.dxmwx.org/book/34804.html",
+          "bookName": "死神之斗破苍穹",
+          "author": "死神斩月",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": "最新章节第040章 雨夜同床",
+          "lastUpdateTime": "一年前",
+          "status": null,
+          "wordCount": null,
+          "score": 0.5142857142857143
+        },
+        {
+          "sourceId": 14,
+          "sourceName": "略更网",
+          "url": "https://www.luegeng.com/book150988/",
+          "bookName": "无敌在斗破苍穹",
+          "author": "翔朋子",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": "连载",
+          "wordCount": "5万字",
+          "score": 0.5142857142857143
+        },
+        {
+          "sourceId": 14,
+          "sourceName": "略更网",
+          "url": "https://www.luegeng.com/book131475/",
+          "bookName": "斗破苍穹之水君",
+          "author": "滚键盘吧",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": "连载",
+          "wordCount": "89万字",
+          "score": 0.5142857142857143
+        },
+        {
+          "sourceId": 5,
+          "sourceName": "新天禧小说",
+          "url": "https://www.tianxibook.com/book/95044080/",
+          "bookName": "斗破苍穹同人作品",
+          "author": "梦幻尊者",
+          "category": null,
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": null,
+          "wordCount": null,
+          "score": 0.5
+        },
+        {
+          "sourceId": 11,
+          "sourceName": "零点小说",
+          "url": "https://www.0xs.net/txt/162.html",
+          "bookName": "斗破苍穹神之炎帝",
+          "author": "柠檬邱霞",
+          "category": "轻小说",
+          "intro": null,
+          "coverUrl": null,
+          "chapterCount": null,
+          "latestChapter": null,
+          "lastUpdateTime": null,
+          "status": "完结",
+          "wordCount": "650.18万字",
+          "score": 0.5
+        }
+      ]
+    }
+  },
+  "detail": {
+    "status": "success",
+    "status_code": 200,
+    "response": {
+      "code": 200,
+      "message": "success",
+      "data": {
+        "url": "https://www.tianxibook.com/book/94931673/",
+        "bookName": "斗破苍穹",
+        "author": "萧战萧敖",
+        "intro": "【无系统+爽文+无敌】 我叫白云飞，我一步步成长，一步步变强，直到成为永恒！ 让我们走进斗破苍穹的世界一探究竟。",
+        "category": "现代言情",
+        "coverUrl": "http://www.tianxibook.com/images/94931/94931673/94931673s.jpg",
+        "latestChapter": null,
+        "lastUpdateTime": null,
+        "status": null,
+        "wordCount": null
+      }
+    }
+  }
+}
