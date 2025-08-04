@@ -34,7 +34,26 @@ async def search_novels(
         logger.info(f"开始搜索小说，关键词：{keyword}，maxResults={maxResults}")
         results = await novel_service.search(keyword, max_results=maxResults)
         logger.info(f"搜索完成，找到 {len(results)} 条结果")
-        return {"code": 200, "message": "success", "data": results}
+        
+        # 尝试序列化结果，如果出现bookName错误则跳过有问题的结果
+        try:
+            return {"code": 200, "message": "success", "data": results}
+        except AttributeError as e:
+            if "bookName" in str(e):
+                logger.warning(f"搜索结果序列化时出现bookName错误，跳过有问题的结果: {str(e)}")
+                # 过滤掉有问题的结果
+                filtered_results = []
+                for result in results:
+                    try:
+                        # 尝试访问bookName属性，如果失败则跳过
+                        _ = getattr(result, 'bookName', None)
+                        filtered_results.append(result)
+                    except AttributeError:
+                        logger.warning(f"跳过有bookName问题的搜索结果")
+                        continue
+                return {"code": 200, "message": "success", "data": filtered_results}
+            else:
+                raise e
     except Exception as e:
         logger.error(f"搜索失败: {str(e)}")
         return JSONResponse(
