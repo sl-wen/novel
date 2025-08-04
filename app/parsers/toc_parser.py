@@ -249,12 +249,12 @@ class TocParser:
         
             for i, item in enumerate(items):
                 try:
-                # 获取章节标题
+                    # 获取章节标题
                     title = ""
-                if title_selector:
+                    if title_selector:
                         title_element = item.select_one(title_selector)
                         if title_element:
-                title = title_element.get_text().strip()
+                            title = title_element.get_text().strip()
                         else:
                             title = item.get_text().strip()
                     else:
@@ -263,24 +263,24 @@ class TocParser:
                     
                     # 获取章节URL - 直接从href属性获取
                     chapter_url = item.get("href", "")
-                
-                # 如果URL不是以http开头，则添加baseUri
+                    
+                    # 如果URL不是以http开头，则添加baseUri
                     if chapter_url and not chapter_url.startswith("http"):
                         base_uri = self.source.rule.get("url", "")
                         chapter_url = f"{base_uri.rstrip('/')}/{chapter_url.lstrip('/')}"
-                
+                    
                     if title and chapter_url:
-                # 创建章节对象
-                chapter = ChapterInfo(
+                        # 创建章节对象
+                        chapter = ChapterInfo(
                             url=chapter_url,
-                    title=title,
-                    order=i + 1
-                )
+                            title=title,
+                            order=i + 1
+                        )
                         chapters.append(chapter)
-                
-            except Exception as e:
+                    
+                except Exception as e:
                     logger.error(f"解析章节异常: {str(e)}")
-                continue
+                    continue
             
         except Exception as e:
             logger.error(f"解析目录异常: {str(e)}")
