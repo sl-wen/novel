@@ -182,6 +182,15 @@ class NovelService:
         low_relevance_count = 0
         
         for i, result in enumerate(results):
+            # Debug: Check the type of each result
+            logger.debug(f"处理结果 {i+1}: 类型={type(result)}")
+            
+            # Check if result is a SearchResult instance
+            if not isinstance(result, SearchResult):
+                logger.error(f"结果 {i+1} 不是 SearchResult 实例: {type(result)}")
+                filtered_count += 1
+                continue
+                
             logger.debug(f"处理结果 {i+1}: 书名='{result.bookName}', 作者='{result.author}', URL='{result.url}'")
             
             # 1. 过滤明显异常的结果
@@ -330,7 +339,7 @@ class NovelService:
         
         # 移除常见的标点符号和空格
         import re
-        text = re.sub(r'[，。！？；：""''（）【】《》\s\-_\[\]()]+', '', text, flags=re.UNICODE)
+        text = re.sub(r'[，。！？；：""''（）【】《》\\s\\-_\\[\\]()]+', '', text, flags=re.UNICODE)
         
         return text
     
