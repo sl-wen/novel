@@ -57,7 +57,12 @@ async def get_novel_detail(url: str = Query(..., description="小说详情页URL
     try:
         logger.info(f"开始获取小说详情，URL：{url}，书源ID：{sourceId}")
         book = await novel_service.get_book_detail(url, sourceId)
-        logger.info(f"获取小说详情成功：{book.bookName}")
+        try:
+            book_name = getattr(book, 'bookName', '未知书名') or '未知书名'
+            logger.info(f"获取小说详情成功：{book_name}")
+        except Exception as e:
+            logger.error(f"获取书籍名称时发生异常: {str(e)}")
+            logger.info(f"获取小说详情成功：未知书名")
         return {
             "code": 200,
             "message": "success",
@@ -124,7 +129,12 @@ async def download_novel(background_tasks: BackgroundTasks,
         logger.info(f"开始下载小说，URL：{url}，书源ID：{sourceId}，格式：{format}")
         # 获取书籍信息
         book = await novel_service.get_book_detail(url, sourceId)
-        logger.info(f"获取书籍信息成功：{book.bookName}")
+        try:
+            book_name = getattr(book, 'bookName', '未知书名') or '未知书名'
+            logger.info(f"获取书籍信息成功：{book_name}")
+        except Exception as e:
+            logger.error(f"获取书籍名称时发生异常: {str(e)}")
+            logger.info(f"获取书籍信息成功：未知书名")
         
         # 异步下载并生成文件
         file_path = await novel_service.download(url, sourceId, format)
