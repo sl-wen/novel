@@ -212,7 +212,9 @@ class NovelService:
 
                 # 2. 计算相关性得分
                 relevance_score = self._calculate_relevance_score(result, keyword)
-                logger.debug(f"结果 '{result.title}' 的相关性得分: {relevance_score:.3f}")
+                logger.debug(
+                    f"结果 '{result.title}' 的相关性得分: {relevance_score:.3f}"
+                )
 
                 # 3. 只保留相关性得分大于阈值的结果 (进一步降低阈值)
                 if relevance_score > 0.01:  # 进一步降低阈值从0.05到0.01
@@ -387,7 +389,7 @@ class NovelService:
         import re
 
         text = re.sub(
-            r'[，。！？；：""''（）【】《》\s\-_\[\]()]+',
+            r'[，。！？；：""' "（）【】《》\s\-_\[\]()]+",
             "",
             text,
             flags=re.UNICODE,
@@ -691,7 +693,7 @@ class NovelService:
             logger.error(f"生成EPUB文件失败: {str(e)}")
             return self._generate_txt(book, chapters, file_path.with_suffix(".txt"))
 
-    async def get_sources(self):
+    def get_sources(self):
         """获取所有可用书源
 
         Returns:

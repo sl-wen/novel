@@ -23,43 +23,38 @@ class SearchResult(BaseModel):
     source_name: str = Field(default="", description="书源名称")
     score: float = Field(default=0.0, description="相关性得分")
 
-    def model_post_init(self, __context) -> None:
-        """模型初始化后的处理"""
-        # 确保向后兼容性
-        if hasattr(self, 'title') and self.title:
-            # 动态添加bookName属性以保持兼容性
-            object.__setattr__(self, 'bookName', self.title)
-
     def __getattr__(self, name):
         """动态属性访问，支持bookName等旧属性名"""
-        if name == 'bookName':
+        if name == "bookName":
             return self.title
-        elif name == 'sourceId':
+        elif name == "sourceId":
             return self.source_id
-        elif name == 'sourceName':
+        elif name == "sourceName":
             return self.source_name
-        elif name == 'latestChapter':
+        elif name == "latestChapter":
             return self.latest_chapter
-        elif name == 'lastUpdateTime':
+        elif name == "lastUpdateTime":
             return self.update_time
-        elif name == 'wordCount':
+        elif name == "wordCount":
             return self.word_count
-        elif name == 'coverUrl':
+        elif name == "coverUrl":
             return self.cover
         else:
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{name}'"
+            )
 
     def model_dump(self, **kwargs):
         """自定义序列化，包含兼容性字段"""
         data = super().model_dump(**kwargs)
         # 添加兼容性字段
-        data['bookName'] = self.title
-        data['sourceId'] = self.source_id
-        data['sourceName'] = self.source_name
-        data['latestChapter'] = self.latest_chapter
-        data['lastUpdateTime'] = self.update_time
-        data['wordCount'] = self.word_count
-        data['coverUrl'] = self.cover
+        data["bookName"] = self.title
+        data["sourceId"] = self.source_id
+        data["sourceName"] = self.source_name
+        data["latestChapter"] = self.latest_chapter
+        data["lastUpdateTime"] = self.update_time
+        data["wordCount"] = self.word_count
+        data["coverUrl"] = self.cover
         return data
 
 
