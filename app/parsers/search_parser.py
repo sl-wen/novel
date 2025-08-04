@@ -101,67 +101,56 @@ class SearchParser:
             # 尝试解析为JSON
             return json.loads(data_str)
         except json.JSONDecodeError:
-            # 处理 {key: value} 格式
-            if data_str.startswith("{") and data_str.endswith("}"):
-                try:
-                    # 移除花括号并分割
-                    content = data_str.strip("{}")
-                    if ":" in content:
-                        parts = content.split(":", 1)
-                        key = parts[0].strip()
-                        value = parts[1].strip()
-                        return {key: value}
-                except Exception:
-                    pass
-
-            # 处理表单数据格式
-            if "=" in data_str:
-                try:
+            # 如果不是JSON，尝试解析为表单数据
+            try:
+                # 处理类似 "{searchkey: %s}" 的格式
+                if data_str.startswith("{") and data_str.endswith("}"):
+                    # 移除大括号，分割键值对
+                    content = data_str[1:-1]
+                    pairs = content.split(",")
                     data_dict = {}
-                    pairs = data_str.split("&")
                     for pair in pairs:
-                        if "=" in pair:
-                            key, value = pair.split("=", 1)
-                            data_dict[key.strip()] = value.strip()
+                        if ":" in pair:
+                            key, value = pair.split(":", 1)
+                            key = key.strip().strip('"').strip("'")
+                            value = value.strip().strip('"').strip("'")
+                            data_dict[key] = value
                     return data_dict
-                except Exception:
-                    pass
-
-            # 返回原始字符串
-            return data_str
+                else:
+                    # 作为字符串返回
+                    return data_str
+            except Exception:
+                # 如果都失败了，返回原始字符串
+                return data_str
 
     def _build_search_url(self, keyword: str, page: int = 1) -> str:
         """构建搜索URL
 
         Args:
             keyword: 搜索关键词
-            page: 页码，默认为1
+            page: 页码
 
         Returns:
             搜索URL
         """
         url_template = self.search_rule.get("url", "")
         if not url_template:
+            logger.error("未配置搜索URL模板")
             return ""
 
         # 替换关键词占位符
         url = url_template.replace("%s", keyword)
-
-        # 替换页码占位符
-        if "%p" in url:
-            url = url.replace("%p", str(page))
-
-        # 构建完整URL
-        base_url = self.source.rule.get("url", "")
-        if not url.startswith(("http://", "https://")):
-            url = f"{base_url.rstrip('/')}/{url.lstrip('/')}"
+        
+        # 处理分页
+        if "%d" in url:
+            url = url.replace("%d", str(page))
 
         return url
 
     async def _fetch_html_with_retry(
         self, url: str, method: str = "get", data: Any = None
     ) -> Optional[str]:
-        """带重试机制的获取HTML页面
+        """带重试的HTML获取
 
         Args:
             url: 页面URL
@@ -171,28 +160,18 @@ class SearchParser:
         Returns:
             HTML页面内容，失败返回None
         """
-        for attempt in range(settings.REQUEST_RETRY_TIMES):
+        for attempt in range(settings.REQUEST_RETRY_TIMES + 1):
             try:
-                result = await self._fetch_html(url, method, data)
-                if result:
-                    return result
-
-                if attempt == 0:
-                    logger.warning(f"第一次请求失败，准备重试: {url}")
-
+                html = await self._fetch_html(url, method=method, data=data)
+                if html:
+                    return html
             except Exception as e:
-                if attempt < settings.REQUEST_RETRY_TIMES - 1:
-                    logger.warning(
-                        f"请求失败（第 {attempt + 1} 次），"
-                        f"{settings.REQUEST_RETRY_DELAY} 秒后重试: {str(e)}"
-                    )
+                logger.warning(f"第 {attempt + 1} 次请求失败: {url}, 错误: {str(e)}")
+                if attempt < settings.REQUEST_RETRY_TIMES:
                     await asyncio.sleep(settings.REQUEST_RETRY_DELAY)
                 else:
-                    logger.error(
-                        f"请求最终失败（共 {settings.REQUEST_RETRY_TIMES} 次尝试）: "
-                        f"{str(e)}"
-                    )
-
+                    logger.error(f"所有重试都失败了: {url}")
+                    return None
         return None
 
     async def _fetch_html(
@@ -209,14 +188,27 @@ class SearchParser:
             HTML页面内容，失败返回None
         """
         try:
+            # 创建SSL上下文，跳过证书验证
+            connector = aiohttp.TCPConnector(
+                limit=settings.MAX_CONCURRENT_REQUESTS,
+                ssl=False,  # 跳过SSL证书验证
+                use_dns_cache=True,
+                ttl_dns_cache=300,
+            )
+            
+            timeout = aiohttp.ClientTimeout(
+                total=self.timeout,
+                connect=10,
+                sock_read=30
+            )
+            
             async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=self.timeout),
-                connector=aiohttp.TCPConnector(limit=settings.MAX_CONCURRENT_REQUESTS),
+                timeout=timeout,
+                connector=connector,
+                headers=self.headers
             ) as session:
                 if method == "post":
-                    async with session.post(
-                        url, headers=self.headers, data=data
-                    ) as response:
+                    async with session.post(url, data=data) as response:
                         if response.status == 200:
                             return await response.text()
                         else:
@@ -225,7 +217,7 @@ class SearchParser:
                             )
                             return None
                 else:
-                    async with session.get(url, headers=self.headers) as response:
+                    async with session.get(url) as response:
                         if response.status == 200:
                             return await response.text()
                         else:
@@ -296,14 +288,6 @@ class SearchParser:
             intro_selector = self.search_rule.get("intro", "")
             intro = self._extract_text(element, intro_selector)
 
-            # 获取封面
-            cover_selector = self.search_rule.get("cover", "")
-            cover = self._extract_attr(element, cover_selector, "src")
-
-            # 获取详情页URL
-            url_selector = self.search_rule.get("url", "")
-            url = self._extract_attr(element, url_selector, "href")
-
             # 获取分类
             category_selector = self.search_rule.get("category", "")
             category = self._extract_text(element, category_selector)
@@ -316,68 +300,72 @@ class SearchParser:
             word_count_selector = self.search_rule.get("word_count", "")
             word_count = self._extract_text(element, word_count_selector)
 
-            # 获取最后更新时间
-            update_time_selector = self.search_rule.get("update_time", "")
-            update_time = self._extract_text(element, update_time_selector)
-
             # 获取最新章节
-            latest_chapter_selector = self.search_rule.get("latest_chapter", "")
-            latest_chapter = self._extract_text(element, latest_chapter_selector)
+            latest_selector = self.search_rule.get("latest", "")
+            latest_chapter = self._extract_text(element, latest_selector)
 
-            # 构建完整URL
+            # 获取更新时间
+            update_selector = self.search_rule.get("update", "")
+            update_time = self._extract_text(element, update_selector)
+
+            # 获取封面
+            cover_selector = self.search_rule.get("cover", "")
+            cover = self._extract_attr(element, cover_selector, "src")
+
+            # 获取详情页URL
+            url_selector = self.search_rule.get("name", "")
+            url = self._extract_attr(element, url_selector, "href")
+
+            # 如果URL是相对路径，转换为绝对路径
             if url and not url.startswith(("http://", "https://")):
                 base_url = self.source.rule.get("url", "")
-                url = f"{base_url.rstrip('/')}/{url.lstrip('/')}"
+                if base_url:
+                    if url.startswith("/"):
+                        url = base_url.rstrip("/") + url
+                    else:
+                        url = base_url.rstrip("/") + "/" + url
 
-            if cover and not cover.startswith(("http://", "https://")):
-                base_url = self.source.rule.get("url", "")
-                cover = f"{base_url.rstrip('/')}/{cover.lstrip('/')}"
+            # 验证必要字段
+            if not title or not url:
+                return None
 
-            try:
-                return SearchResult(
-                    title=title or "未知标题",
-                    author=author or "未知作者",
-                    intro=intro or "",
-                    cover=cover or "",
-                    url=url or "",
-                    category=category or "",
-                    status=status or "未知",
-                    word_count=word_count or "",
-                    update_time=update_time or "",
-                    latest_chapter=latest_chapter or "",
-                    source_id=self.source.id,
-                    source_name=self.source.rule.get("name", self.source.id),
-                )
-            except AttributeError as e:
-                # 如果出现bookName相关错误，记录并返回None
-                logger.warning(f"SearchResult创建失败（bookName相关）: {str(e)}")
-                return None
-            except Exception as e:
-                logger.warning(f"解析搜索结果失败: {str(e)}")
-                return None
+            return SearchResult(
+                title=title,
+                author=author,
+                intro=intro,
+                cover=cover,
+                url=url,
+                category=category,
+                status=status,
+                word_count=word_count,
+                update_time=update_time,
+                latest_chapter=latest_chapter,
+                source_id=self.source.id,
+                source_name=self.source.rule.get("name", ""),
+            )
         except Exception as e:
-            logger.warning(f"解析单个搜索结果失败: {str(e)}")
+            logger.warning(f"解析搜索结果失败: {str(e)}")
             return None
 
     def _extract_text(self, element: BeautifulSoup, selector: str) -> str:
         """提取文本内容
 
         Args:
-            element: BeautifulSoup元素
+            element: 元素
             selector: CSS选择器
 
         Returns:
-            提取的文本内容
+            提取的文本
         """
         if not selector:
             return ""
 
         try:
-            target_element = element.select_one(selector)
-            if target_element:
-                return target_element.get_text(strip=True)
+            target = element.select_one(selector)
+            if target:
+                return target.get_text(strip=True)
         except Exception as e:
-            logger.warning(f"提取文本失败: {selector}, 错误: {str(e)}")
+            logger.debug(f"提取文本失败: {selector}, 错误: {str(e)}")
 
         return ""
 
@@ -385,7 +373,7 @@ class SearchParser:
         """提取属性值
 
         Args:
-            element: BeautifulSoup元素
+            element: 元素
             selector: CSS选择器
             attr: 属性名
 
@@ -396,11 +384,11 @@ class SearchParser:
             return ""
 
         try:
-            target_element = element.select_one(selector)
-            if target_element:
-                return target_element.get(attr, "")
+            target = element.select_one(selector)
+            if target:
+                return target.get(attr, "")
         except Exception as e:
-            logger.warning(f"提取属性失败: {selector}.{attr}, 错误: {str(e)}")
+            logger.debug(f"提取属性失败: {selector}.{attr}, 错误: {str(e)}")
 
         return ""
 
@@ -409,27 +397,21 @@ class SearchParser:
 
         Args:
             content: 字节内容
-            charset: 字符编码
+            charset: 字符集
 
         Returns:
             解码后的字符串
         """
-        if not content:
-            return ""
-
-        try:
-            if charset:
-                return content.decode(charset)
-            else:
-                # 尝试自动检测编码
-                import chardet
-
-                detected = chardet.detect(content)
-                return content.decode(detected["encoding"] or "utf-8")
-        except Exception as e:
-            logger.warning(f"解码内容失败: {str(e)}")
-            # 尝试使用utf-8解码
+        if not charset:
             try:
                 return content.decode("utf-8")
-            except Exception:
+            except UnicodeDecodeError:
+                try:
+                    return content.decode("gbk")
+                except UnicodeDecodeError:
+                    return content.decode("utf-8", errors="ignore")
+        else:
+            try:
+                return content.decode(charset)
+            except UnicodeDecodeError:
                 return content.decode("utf-8", errors="ignore")
