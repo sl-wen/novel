@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     DEFAULT_FORMAT: str = "txt"
 
     # HTTP设置
-    DEFAULT_TIMEOUT: int = 15  # 增加默认超时时间到15秒
+    DEFAULT_TIMEOUT: int = 100  # 增加默认超时时间到15秒
     REQUEST_RETRY_TIMES: int = 3  # 请求重试次数
     REQUEST_RETRY_DELAY: float = 2.0  # 增加重试延迟到2秒
     CONNECT_TIMEOUT: int = 10  # 连接超时时间
