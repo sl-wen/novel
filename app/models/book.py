@@ -16,3 +16,8 @@ class Book(BaseModel):
     toc_url: str = ""
     source_id: int = 0
     source_name: str = ""
+
+    @property
+    def bookName(self) -> str:
+        """向后兼容的属性，映射到title字段"""
+        return self.title

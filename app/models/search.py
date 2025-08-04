@@ -20,6 +20,11 @@ class SearchResult(BaseModel):
     source_name: str = ""
     score: float = 0.0
 
+    @property
+    def bookName(self) -> str:
+        """向后兼容的属性，映射到title字段"""
+        return self.title
+
 
 class SearchResponse(BaseModel):
     """搜索响应模型"""
