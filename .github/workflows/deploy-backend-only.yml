@@ -73,8 +73,8 @@ jobs:
           fi
           
           if timeout 30 git fetch origin --prune; then
-            git reset --hard origin/master
-            git checkout master
+            git reset --hard origin/main
+            git checkout main
             git clean -fd
             NEW_COMMIT=$(git rev-parse HEAD)
             echo "✅ 后端代码更新: $OLD_COMMIT -> $NEW_COMMIT"
