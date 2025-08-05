@@ -2,9 +2,9 @@
 name: Deploy Backend API
 
 on:
-  # 在main分支有推送时触发后端部署
+  # 在base分支有推送时触发后端部署
   push:
-    branches: [ main ]
+    branches: [ base ]
   # 允许手动触发部署
   workflow_dispatch:
 
@@ -37,7 +37,7 @@ jobs:
           
           # 停止后端服务
           echo "停止后端API服务..."
-          sudo systemctl stop blog  || echo "后端服务已停止"
+          sudo systemctl stop blog novel || echo "后端服务已停止"
           
           # 检查SSH环境
           echo "检查SSH环境..."
@@ -73,8 +73,8 @@ jobs:
           fi
           
           if timeout 30 git fetch origin --prune; then
-            git reset --hard origin/main
-            git checkout main
+            git reset --hard origin/base
+            git checkout base
             git clean -fd
             NEW_COMMIT=$(git rev-parse HEAD)
             echo "✅ 后端代码更新: $OLD_COMMIT -> $NEW_COMMIT"
@@ -120,30 +120,19 @@ jobs:
             pip install -r requirements.txt
           fi
           
-          # 数据库迁移（如果有）
-          if [ -f "manage.py" ]; then
-            echo "执行数据库迁移..."
-            python manage.py migrate --noinput || echo "数据库迁移完成"
-          fi
-          
-          # 收集静态文件（如果有）
-          if [ -f "manage.py" ]; then
-            echo "收集静态文件..."
-            python manage.py collectstatic --noinput || echo "静态文件收集完成"
-          fi
           
           # 启动后端服务
           echo "启动后端API服务..."
-          sudo systemctl start blog 
+          sudo systemctl start blog novel  
           
           # 等待服务启动
           sleep 15
           
-          if sudo systemctl is-active --quiet blog ; then
+          if sudo systemctl is-active --quiet blog novel ; then
             echo "✅ 后端API服务启动成功"
           else
             echo "❌ 后端API服务启动失败"
-            sudo systemctl status blog  --no-pager
+            sudo systemctl status blog novel  --no-pager
             exit 1
           fi
           
@@ -167,7 +156,7 @@ jobs:
           
           echo "=== 后端API部署完成 ==="
           echo "时间: $(date)"
-          echo "服务状态: $(sudo systemctl is-active blog )"
+          echo "服务状态: $(sudo systemctl is-active blog novel )"
           echo "内存使用: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
           echo "当前提交: $(git log --oneline -n 1)"
           
