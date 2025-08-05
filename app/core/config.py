@@ -33,7 +33,15 @@ class Settings(BaseSettings):
     # 并发设置
     MAX_THREADS: int = os.cpu_count() * 2 if os.cpu_count() else 8
     MAX_CONCURRENT_REQUESTS: int = 10  # 最大并发请求数
-
+    
+    # 下载设置
+    DOWNLOAD_CONCURRENT_LIMIT: int = 5  # 下载并发限制
+    DOWNLOAD_RETRY_TIMES: int = 3  # 下载重试次数
+    DOWNLOAD_RETRY_DELAY: float = 2.0  # 下载重试延迟（秒）
+    DOWNLOAD_BATCH_DELAY: float = 1.0  # 批次间延迟（秒）
+    MIN_CHAPTER_LENGTH: int = 50  # 最小章节长度（字符数）
+    MIN_CONTENT_LENGTH: int = 100  # 最小内容长度（字符数）
+    
     # 搜索设置
     MAX_SEARCH_PAGES: int = 3  # 最大搜索页数
     MAX_SEARCH_RESULTS: int = 20  # 最大搜索结果数

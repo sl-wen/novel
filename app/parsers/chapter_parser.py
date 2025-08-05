@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from app.core.config import settings
 from app.core.source import Source
 from app.models.chapter import Chapter
+from app.utils.content_validator import ContentValidator
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class ChapterParser:
             "Referer": source.rule.get("url", ""),
         }
         self.chapter_rule = source.rule.get("chapter", {})
+        self.content_validator = ContentValidator()
 
     async def parse(self, url: str, title: str, order: int) -> Chapter:
         """解析章节内容
@@ -138,32 +140,45 @@ class ChapterParser:
             章节内容
         """
         # 获取章节内容规则
-        content_selector = self.chapter_rule.get("content", "")
+        content_selectors = self.chapter_rule.get("content", "").split(",")
         ad_patterns = self.chapter_rule.get("ad_patterns", [])
 
-        if not content_selector:
+        if not content_selectors:
             logger.warning("章节规则中缺少content选择器")
             return "无法获取章节内容：缺少内容选择器"
 
         # 解析HTML
         soup = BeautifulSoup(html, "html.parser")
 
-        # 获取章节内容
-        content_element = soup.select_one(content_selector)
-        if not content_element:
-            logger.warning(f"未找到章节内容元素: {content_selector}")
+        # 尝试多个选择器获取章节内容
+        content = None
+        for selector in content_selectors:
+            selector = selector.strip()
+            if not selector:
+                continue
+                
+            content_element = soup.select_one(selector)
+            if content_element:
+                content = content_element.get_text(separator="\n", strip=True)
+                if content and len(content) > settings.MIN_CONTENT_LENGTH:  # 确保内容足够长
+                    logger.debug(f"使用选择器 {selector} 成功获取内容")
+                    break
+                else:
+                    logger.warning(f"选择器 {selector} 获取的内容过短")
+                    content = None
+
+        if not content:
+            logger.warning(f"未找到有效的章节内容")
             return "无法获取章节内容：内容元素不存在"
 
-        # 提取文本内容
-        content = content_element.get_text(separator="\n", strip=True)
-        if not isinstance(content, str) or not content.strip():
-            content = "（本章获取失败）"
-
-        # 过滤广告和垃圾内容
-        content = self._filter_content(content, ad_patterns)
-
-        # 格式化内容
-        content = self._format_content(content)
+        # 使用内容验证器清理和验证内容
+        content = self.content_validator.clean_content(content)
+        
+        # 验证内容质量
+        is_valid, error_msg = self.content_validator.validate_chapter_content(content, title)
+        if not is_valid:
+            logger.warning(f"章节内容质量不佳: {title} - {error_msg}")
+            content = f"（本章获取失败：{error_msg}）"
 
         return content
 
@@ -203,6 +218,26 @@ class ChapterParser:
             r"\(本章完\)",
             r"章节错误[，,].*?举报",
             r"内容严重缺失[，,].*?举报",
+            r"笔趣阁.+",
+            r"新笔趣阁.+",
+            r"香书小说.+",
+            r"文学巴士.+",
+            r"高速全文字在线阅读.+",
+            r"天才一秒记住本站地址.+",
+            r"手机用户请浏览阅读.+",
+            r"天才壹秒記住.+為您提供精彩小說閱讀.+",
+            r"一秒记住【.+?】",
+            r"天才一秒记住.+?",
+            r"天才壹秒記住.+?",
+            r"看最新章节请到.+?",
+            r"本书最新章节请到.+?",
+            r"更新最快的.+?",
+            r"手机用户请访问.+?",
+            r"手机版阅读网址.+?",
+            r"推荐都市大神.+?",
+            r"\(本章完\)",
+            r"章节错误.+?举报",
+            r"内容严重缺失.+?举报",
         ]
 
         for pattern in common_ad_patterns:
