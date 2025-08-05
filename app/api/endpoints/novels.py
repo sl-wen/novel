@@ -219,20 +219,21 @@ async def get_download_progress(
     """
     try:
         logger.info(f"获取下载进度，任务ID：{task_id}")
-        # TODO: 实现基于任务ID的进度查询
-        # 这里先返回模拟数据
-        progress_data = {
-            "task_id": task_id,
-            "status": "downloading",
-            "progress_percentage": 75.5,
-            "completed_chapters": 151,
-            "total_chapters": 200,
-            "failed_chapters": 2,
-            "success_rate": 98.7,
-            "elapsed_time": 1250.5,
-            "estimated_remaining": 312.8
-        }
-        return {"code": 200, "message": "success", "data": progress_data}
+        
+        from app.utils.progress_tracker import progress_tracker
+        
+        progress = progress_tracker.get_progress(task_id)
+        if not progress:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "code": 404,
+                    "message": f"任务不存在: {task_id}",
+                    "data": None,
+                },
+            )
+        
+        return {"code": 200, "message": "success", "data": progress.to_dict()}
     except Exception as e:
         logger.error(f"获取下载进度失败: {str(e)}")
         return JSONResponse(

@@ -279,17 +279,13 @@ class NovelService:
         Returns:
             是否为有效结果
         """
-        # 检查书名是否有效
-        if not result.title or len(result.title.strip()) < 1:
-            logger.debug(f"书名无效: '{result.title}'")
+        # 使用新的文本验证器检查书名质量
+        from app.utils.text_validator import TextValidator
+        
+        is_valid, quality_score, failure_reason = TextValidator.is_valid_title(result.title)
+        if not is_valid:
+            logger.debug(f"书名质量不合格: '{result.title}' - {failure_reason} (得分: {quality_score:.2f})")
             return False
-
-        # 暂时禁用乱码检测，因为逻辑有问题
-        # TODO: 改进乱码检测逻辑
-        # invalid_chars = result.title.count('?') + result.title.count('')
-        # if invalid_chars > len(result.title) * 0.7:
-        #     logger.debug(f"包含过多乱码字符: '{result.title}' (乱码字符比例: {invalid_chars/len(result.title):.1%})")
-        #     return False
 
         # 临时放宽URL检查，允许空URL的结果通过
         # 检查URL是否有效
@@ -520,7 +516,7 @@ class NovelService:
         toc_parser = TocParser(source)
         return await toc_parser.parse(url, start, end or float("inf"))
 
-    async def download(self, url: str, source_id: int, format: str = "txt") -> str:
+    async def download(self, url: str, source_id: int, format: str = "txt", task_id: Optional[str] = None) -> str:
         """下载小说
 
         Args:
@@ -536,7 +532,7 @@ class NovelService:
         from app.core.config import settings
         
         crawler = EnhancedCrawler(settings)
-        return await crawler.download(url, source_id, format)
+        return await crawler.download(url, source_id, format, task_id)
 
     async def _download_chapters_with_retry(
         self, toc: List[ChapterInfo], source: Source

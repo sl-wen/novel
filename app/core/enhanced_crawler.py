@@ -53,7 +53,7 @@ class EnhancedCrawler:
         self.session_pool = {}  # 会话池
         self.failed_chapters = []  # 失败章节记录
         
-    async def download(self, url: str, source_id: int, format: str = "txt") -> str:
+    async def download(self, url: str, source_id: int, format: str = "txt", task_id: Optional[str] = None) -> str:
         """下载小说（增强版）
         
         Args:
@@ -68,9 +68,14 @@ class EnhancedCrawler:
         start_time = time.time()
         
         try:
+            # 初始化进度跟踪
+            from app.utils.progress_tracker import progress_tracker
+            
             # 1. 获取小说详情
             book = await self._get_book_detail_with_retry(url, source_id)
             if not book:
+                if task_id:
+                    progress_tracker.complete_task(task_id, False, "获取小说详情失败")
                 raise ValueError("获取小说详情失败")
             
             logger.info(f"获取到小说: {book.title} - {book.author}")
@@ -78,9 +83,19 @@ class EnhancedCrawler:
             # 2. 获取目录（带重试和多种策略）
             toc = await self._get_toc_with_retry(url, source_id)
             if not toc:
+                if task_id:
+                    progress_tracker.complete_task(task_id, False, "获取小说目录失败")
                 raise ValueError("获取小说目录失败")
             
             logger.info(f"获取到 {len(toc)} 个章节")
+            
+            # 初始化或更新进度跟踪
+            if task_id:
+                progress_tracker.update_progress(task_id, 0, "开始下载", 0)
+                # 更新总章节数
+                progress = progress_tracker.get_progress(task_id)
+                if progress:
+                    progress.total_chapters = len(toc)
             
             # 3. 创建下载目录
             download_dir = await self._create_download_directory(book, format)
@@ -94,7 +109,7 @@ class EnhancedCrawler:
             
             # 5. 下载章节（增强版）
             chapters = await self._download_chapters_enhanced(
-                toc, source_id, existing_chapters
+                toc, source_id, existing_chapters, task_id
             )
             
             logger.info(f"成功下载 {len(chapters)} 个章节")
@@ -110,10 +125,17 @@ class EnhancedCrawler:
             end_time = time.time()
             logger.info(f"下载完成，耗时 {end_time - start_time:.2f} 秒")
             
+            # 完成任务进度跟踪
+            if task_id:
+                progress_tracker.complete_task(task_id, True)
+            
             return str(file_path)
             
         except Exception as e:
             logger.error(f"下载失败: {str(e)}")
+            # 标记任务失败
+            if task_id:
+                progress_tracker.complete_task(task_id, False, str(e))
             raise
         finally:
             # 清理会话池
@@ -215,7 +237,8 @@ class EnhancedCrawler:
         self, 
         toc: List[ChapterInfo], 
         source_id: int,
-        existing_chapters: Dict[str, str]
+        existing_chapters: Dict[str, str],
+        task_id: Optional[str] = None
     ) -> List[Chapter]:
         """增强版章节下载"""
         self.monitor.start_download(len(toc))
@@ -267,6 +290,16 @@ class EnhancedCrawler:
                         if self.download_config.progress_callback:
                             self.download_config.progress_callback(
                                 len(chapters), len(toc)
+                            )
+                        
+                        # 更新任务进度
+                        if task_id:
+                            from app.utils.progress_tracker import progress_tracker
+                            progress_tracker.update_progress(
+                                task_id, 
+                                len(chapters), 
+                                result.title,
+                                len(self.failed_chapters)
                             )
             
             # 批次间延迟
@@ -424,10 +457,23 @@ class EnhancedCrawler:
         self, book: Book, chapters: List[Chapter], download_dir: Path
     ) -> Path:
         """异步生成EPUB文件"""
-        # TODO: 实现EPUB生成
-        # 这里先生成TXT文件作为替代
-        logger.warning("EPUB格式暂未实现，使用TXT格式替代")
-        return await self._generate_txt_file_async(book, chapters, download_dir)
+        from app.utils.epub_generator import EPUBGenerator
+        
+        # 生成安全的文件名
+        safe_filename = FileUtils.get_safe_filename(f"{book.title}_{book.author}")
+        epub_path = download_dir / f"{safe_filename}.epub"
+        
+        def generate_epub():
+            generator = EPUBGenerator()
+            return generator.generate(book, chapters, str(epub_path))
+        
+        # 在线程池中执行EPUB生成以避免阻塞
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result_path = await loop.run_in_executor(executor, generate_epub)
+        
+        logger.info(f"EPUB文件生成完成: {result_path}")
+        return Path(result_path)
     
     async def _cleanup_temp_files(self, download_dir: Path):
         """清理临时文件"""
