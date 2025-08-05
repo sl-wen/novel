@@ -531,11 +531,11 @@ class NovelService:
         Returns:
             下载文件路径
         """
-        # 使用新的爬虫实现
-        from app.core.crawler import Crawler
+        # 使用增强版爬虫实现
+        from app.core.enhanced_crawler import EnhancedCrawler
         from app.core.config import settings
         
-        crawler = Crawler(settings)
+        crawler = EnhancedCrawler(settings)
         return await crawler.download(url, source_id, format)
 
     async def _download_chapters_with_retry(
