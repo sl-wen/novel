@@ -251,11 +251,19 @@ class TocParser:
         try:
             # 获取章节标题
             title_selector = self.toc_rule.get("title", "")
-            title = self._extract_text(element, title_selector)
+            if title_selector == "text":
+                # 直接使用元素文本
+                title = element.get_text(strip=True)
+            else:
+                title = self._extract_text(element, title_selector)
 
             # 获取章节URL
             url_selector = self.toc_rule.get("url", "")
-            url = self._extract_attr(element, url_selector, "href")
+            if url_selector == "href":
+                # 直接使用href属性
+                url = element.get("href", "")
+            else:
+                url = self._extract_attr(element, url_selector, "href")
 
             # 构建完整URL
             if url and not url.startswith(("http://", "https://")):
