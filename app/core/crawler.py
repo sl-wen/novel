@@ -2,6 +2,7 @@ import asyncio
 import time
 from pathlib import Path
 from typing import List
+import os
 
 from app.core.config import settings
 from app.core.source import Source
@@ -12,6 +13,7 @@ from app.parsers.book_parser import BookParser
 from app.parsers.chapter_parser import ChapterParser
 from app.parsers.search_parser import SearchParser
 from app.parsers.toc_parser import TocParser
+from app.utils.file import FileUtils
 
 
 class Crawler:
@@ -25,6 +27,7 @@ class Crawler:
         """
         self.config = config or settings
         self.book_dir = None
+        self.digit_count = 0
 
     async def search(self, keyword: str) -> List[SearchResult]:
         """搜索小说
@@ -126,27 +129,229 @@ class Crawler:
 
         print(f"<== 获取到 {len(toc)} 个章节")
 
-        # 获取章节内容
+        # 设置数字位数和目录名
+        self.digit_count = len(str(len(toc)))
+        
+        # 创建下载目录，格式：书名 (作者) 格式
+        safe_title = FileUtils.sanitize_filename(book.title)
+        safe_author = FileUtils.sanitize_filename(book.author)
+        self.book_dir = f"{safe_title} ({safe_author}) {format.upper()}"
+        
+        download_base_dir = Path(self.config.DOWNLOAD_PATH)
+        book_download_dir = download_base_dir / self.book_dir
+        
+        # 创建目录
+        os.makedirs(book_download_dir, exist_ok=True)
+        
+        if not book_download_dir.exists():
+            raise ValueError(f"创建下载目录失败: {book_download_dir}")
+
+        print(f"<== 下载目录: {book_download_dir}")
+
+        # 并发下载章节
+        max_concurrent = self.config.DOWNLOAD_CONCURRENT_LIMIT
         source = Source(source_id)
         chapter_parser = ChapterParser(source)
-
+        
+        print(f"<== 开始下载 {len(toc)} 章，最大并发数: {max_concurrent}")
+        
+        # 分批处理章节
         chapters = []
-        for i, chapter_info in enumerate(toc):
-            print(f"<== 正在获取第 {i+1}/{len(toc)} 章: {chapter_info.title}")
-            chapter = await chapter_parser.parse(chapter_info.url)
-            if chapter:
-                chapters.append(chapter)
+        for i in range(0, len(toc), max_concurrent):
+            batch = toc[i:i + max_concurrent]
+            print(f"<== 处理第 {i+1}-{min(i+max_concurrent, len(toc))} 章")
+            
+            # 并发下载当前批次
+            tasks = []
+            for chapter_info in batch:
+                task = self._download_single_chapter(chapter_parser, chapter_info)
+                tasks.append(task)
+            
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 处理结果
+            for j, result in enumerate(batch_results):
+                chapter_info = batch[j]
+                if isinstance(result, Exception):
+                    print(f"<== 章节下载失败: {chapter_info.title}, 错误: {str(result)}")
+                elif result:
+                    chapters.append(result)
+                    print(f"<== 章节下载成功: {result.title}")
+            
+            # 批次间延迟
+            if i + max_concurrent < len(toc):
+                await asyncio.sleep(0.5)
 
-        print(f"<== 成功获取 {len(chapters)} 个章节内容")
+        print(f"<== 成功下载 {len(chapters)} 个章节")
 
-        # 生成文件
-        download_dir = Path(self.config.DOWNLOAD_PATH)
-        file_path = self._generate_file(book, chapters, format, download_dir)
+        # 生成最终文件
+        if format == "txt":
+            file_path = self._generate_txt_file(book, chapters, book_download_dir)
+        elif format == "epub":
+            file_path = self._generate_epub_file(book, chapters, book_download_dir)
+        else:
+            raise ValueError(f"不支持的格式: {format}")
 
         end_time = time.time()
         print(f"<== 下载完成，耗时 {end_time - start_time:.2f} 秒")
 
+        return str(file_path)
+
+    async def _download_single_chapter(
+        self, chapter_parser: ChapterParser, chapter_info: ChapterInfo
+    ) -> Chapter:
+        """下载单个章节
+
+        Args:
+            chapter_parser: 章节解析器
+            chapter_info: 章节信息
+
+        Returns:
+            章节对象
+        """
+        try:
+            chapter = await chapter_parser.parse(chapter_info.url)
+            if chapter:
+                # 保存章节到文件
+                self._save_chapter_file(chapter)
+            return chapter
+        except Exception as e:
+            print(f"<== 章节下载异常: {chapter_info.title}, 错误: {str(e)}")
+            return None
+
+    def _save_chapter_file(self, chapter: Chapter):
+        """保存章节到文件
+
+        Args:
+            chapter: 章节对象
+        """
+        try:
+            # 生成文件路径
+            file_path = self._generate_chapter_path(chapter)
+            
+            # 确保目录存在
+            os.makedirs(file_path.parent, exist_ok=True)
+            
+            # 写入文件
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(chapter.content)
+                
+        except Exception as e:
+            print(f"<== 保存章节文件失败: {chapter.title}, 错误: {str(e)}")
+
+    def _generate_chapter_path(self, chapter: Chapter) -> Path:
+        """生成章节文件路径
+
+        Args:
+            chapter: 章节对象
+
+        Returns:
+            文件路径
+        """
+        download_base_dir = Path(self.config.DOWNLOAD_PATH)
+        book_download_dir = download_base_dir / self.book_dir
+        
+        # 文件名下划线前的数字前补零
+        order_str = str(chapter.order).zfill(self.digit_count)
+        
+        # 生成文件名
+        safe_title = FileUtils.sanitize_filename(chapter.title)
+        filename = f"{order_str}_{safe_title}.txt"
+        
+        return book_download_dir / filename
+
+    def _generate_txt_file(
+        self, book: Book, chapters: List[Chapter], download_dir: Path
+    ) -> Path:
+        """生成TXT文件
+
+        Args:
+            book: 小说信息
+            chapters: 章节列表
+            download_dir: 下载目录
+
+        Returns:
+            文件路径
+        """
+        # 生成文件名
+        safe_title = FileUtils.sanitize_filename(book.title)
+        safe_author = FileUtils.sanitize_filename(book.author)
+        filename = f"{safe_title}_{safe_author}.txt"
+        file_path = download_dir / filename
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            # 写入小说信息
+            f.write(f"书名：{book.title}\n")
+            f.write(f"作者：{book.author}\n")
+            f.write(f"简介：{book.intro}\n")
+            f.write(f"状态：{book.status}\n")
+            f.write(f"分类：{book.category}\n")
+            f.write(f"字数：{book.word_count}\n")
+            f.write(f"更新时间：{book.update_time}\n")
+            f.write("=" * 50 + "\n\n")
+
+            # 按章节顺序排序
+            chapters.sort(key=lambda x: x.order)
+            
+            # 写入章节内容
+            for chapter in chapters:
+                f.write(f"{chapter.title}\n")
+                f.write("-" * 30 + "\n")
+                f.write(f"{chapter.content}\n\n")
+
         return file_path
+
+    def _generate_epub_file(
+        self, book: Book, chapters: List[Chapter], download_dir: Path
+    ) -> Path:
+        """生成EPUB文件
+
+        Args:
+            book: 小说信息
+            chapters: 章节列表
+            download_dir: 下载目录
+
+        Returns:
+            文件路径
+        """
+        try:
+            from ebooklib import epub
+
+            # 生成文件名
+            safe_title = FileUtils.sanitize_filename(book.title)
+            safe_author = FileUtils.sanitize_filename(book.author)
+            filename = f"{safe_title}_{safe_author}.epub"
+            file_path = download_dir / filename
+
+            # 创建EPUB书籍
+            epub_book = epub.EpubBook()
+            epub_book.set_title(book.title)
+            epub_book.set_language("zh-CN")
+            epub_book.add_author(book.author)
+
+            # 添加章节
+            chapters_epub = []
+            for chapter in chapters:
+                chapter_epub = epub.EpubHtml(
+                    title=chapter.title,
+                    file_name=f"chapter_{chapter.order}.xhtml",
+                    content=(f"<h1>{chapter.title}</h1><p>{chapter.content}</p>"),
+                )
+                epub_book.add_item(chapter_epub)
+                chapters_epub.append(chapter_epub)
+
+            # 设置目录
+            epub_book.toc = chapters_epub
+            epub_book.spine = ["nav"] + chapters_epub
+
+            # 生成EPUB文件
+            epub.write_epub(str(file_path), epub_book)
+
+            return file_path
+        except ImportError:
+            raise ValueError("生成EPUB文件需要安装ebooklib库")
+        except Exception as e:
+            raise ValueError(f"生成EPUB文件失败: {e}")
 
     def _get_searchable_sources(self) -> List[Source]:
         """获取所有可搜索的书源
@@ -203,113 +408,3 @@ class Crawler:
             return score
 
         return sorted(results, key=score_result, reverse=True)
-
-    def _generate_file(
-        self, book: Book, chapters: List[Chapter], format: str, download_dir: Path
-    ) -> str:
-        """生成下载文件
-
-        Args:
-            book: 小说信息
-            chapters: 章节列表
-            format: 文件格式
-            download_dir: 下载目录
-
-        Returns:
-            文件路径
-        """
-        # 生成文件名
-        safe_title = "".join(
-            c for c in book.title if c.isalnum() or c in (" ", "-", "_")
-        )
-        safe_author = "".join(
-            c for c in book.author if c.isalnum() or c in (" ", "-", "_")
-        )
-        filename = f"{safe_title}_{safe_author}.{format}"
-
-        file_path = download_dir / filename
-
-        if format == "txt":
-            return self._generate_txt(book, chapters, file_path)
-        elif format == "epub":
-            return self._generate_epub(book, chapters, file_path)
-        else:
-            raise ValueError(f"不支持的格式: {format}")
-
-    def _generate_txt(
-        self, book: Book, chapters: List[Chapter], file_path: Path
-    ) -> str:
-        """生成TXT文件
-
-        Args:
-            book: 小说信息
-            chapters: 章节列表
-            file_path: 文件路径
-
-        Returns:
-            文件路径
-        """
-        with open(file_path, "w", encoding="utf-8") as f:
-            # 写入小说信息
-            f.write(f"书名：{book.title}\n")
-            f.write(f"作者：{book.author}\n")
-            f.write(f"简介：{book.intro}\n")
-            f.write(f"状态：{book.status}\n")
-            f.write(f"分类：{book.category}\n")
-            f.write(f"字数：{book.word_count}\n")
-            f.write(f"更新时间：{book.update_time}\n")
-            f.write("=" * 50 + "\n\n")
-
-            # 写入章节内容
-            for chapter in chapters:
-                f.write(f"{chapter.title}\n")
-                f.write("-" * 30 + "\n")
-                f.write(f"{chapter.content}\n\n")
-
-        return str(file_path)
-
-    def _generate_epub(
-        self, book: Book, chapters: List[Chapter], file_path: Path
-    ) -> str:
-        """生成EPUB文件
-
-        Args:
-            book: 小说信息
-            chapters: 章节列表
-            file_path: 文件路径
-
-        Returns:
-            文件路径
-        """
-        try:
-            from ebooklib import epub
-
-            # 创建EPUB书籍
-            epub_book = epub.EpubBook()
-            epub_book.set_title(book.title)
-            epub_book.set_language("zh-CN")
-            epub_book.add_author(book.author)
-
-            # 添加章节
-            chapters_epub = []
-            for chapter in chapters:
-                chapter_epub = epub.EpubHtml(
-                    title=chapter.title,
-                    file_name=f"chapter_{len(chapters_epub)}.xhtml",
-                    content=(f"<h1>{chapter.title}</h1><p>{chapter.content}</p>"),
-                )
-                epub_book.add_item(chapter_epub)
-                chapters_epub.append(chapter_epub)
-
-            # 设置目录
-            epub_book.toc = chapters_epub
-            epub_book.spine = ["nav"] + chapters_epub
-
-            # 生成EPUB文件
-            epub.write_epub(str(file_path), epub_book)
-
-            return str(file_path)
-        except ImportError:
-            raise ValueError("生成EPUB文件需要安装ebooklib库")
-        except Exception as e:
-            raise ValueError(f"生成EPUB文件失败: {e}")

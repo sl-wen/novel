@@ -522,30 +522,12 @@ class NovelService:
         Returns:
             下载文件路径
         """
-        source = self.sources.get(source_id)
-        if not source:
-            raise ValueError(f"无效的书源ID: {source_id}")
-
-        book = await self.get_book_detail(url, source_id)
-        logger.info(f"获取书籍详情成功: {book.title}")
-
-        toc = await self.get_toc(url, source_id)
-        logger.info(f"获取目录成功，共 {len(toc)} 章")
-
-        book_folder_name = FileUtils.sanitize_filename(f"{book.title} ({book.author})")
-        download_dir = Path(settings.DOWNLOAD_PATH) / book_folder_name
-        os.makedirs(download_dir, exist_ok=True)
-
-        # 使用改进的章节下载方法
-        chapters = await self._download_chapters_with_retry(toc, source)
-
-        # 输出最终报告
-        final_report = self.monitor.get_final_report()
-        logger.info(final_report)
-
-        file_path = self._generate_file(book, chapters, format, download_dir)
-
-        return str(file_path)
+        # 使用新的爬虫实现
+        from app.core.crawler import Crawler
+        from app.core.config import settings
+        
+        crawler = Crawler(settings)
+        return await crawler.download(url, source_id, format)
 
     async def _download_chapters_with_retry(
         self, toc: List[ChapterInfo], source: Source
