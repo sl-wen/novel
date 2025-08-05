@@ -152,13 +152,27 @@ async def download_novel(
         # 对文件名进行URL编码，解决中文字符问题
         encoded_filename = urllib.parse.quote(filename, safe="")
 
+        # 使用生成器确保文件正确关闭
+        def file_generator():
+            try:
+                with open(file_path, "rb") as f:
+                    while True:
+                        chunk = f.read(8192)  # 8KB chunks
+                        if not chunk:
+                            break
+                        yield chunk
+            except Exception as e:
+                logger.error(f"读取文件失败: {str(e)}")
+                raise
+        
         return StreamingResponse(
-            open(file_path, "rb"),
+            file_generator(),
             media_type="application/octet-stream",
             headers={
                 # 使用RFC 5987标准格式，支持UTF-8编码的文件名
                 "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
                 "Access-Control-Expose-Headers": "Content-Disposition",
+                "Content-Length": str(file_obj.stat().st_size),
             },
         )
     except HTTPException:
@@ -191,6 +205,42 @@ async def get_chapter_content(
             content={
                 "code": 500,
                 "message": f"获取章节内容失败: {str(e)}",
+                "data": None,
+            },
+        )
+
+
+@router.get("/download/progress")
+async def get_download_progress(
+    task_id: str = Query(..., description="下载任务ID")
+):
+    """
+    获取下载进度
+    """
+    try:
+        logger.info(f"获取下载进度，任务ID：{task_id}")
+        
+        from app.utils.progress_tracker import progress_tracker
+        
+        progress = progress_tracker.get_progress(task_id)
+        if not progress:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "code": 404,
+                    "message": f"任务不存在: {task_id}",
+                    "data": None,
+                },
+            )
+        
+        return {"code": 200, "message": "success", "data": progress.to_dict()}
+    except Exception as e:
+        logger.error(f"获取下载进度失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"获取下载进度失败: {str(e)}",
                 "data": None,
             },
         )

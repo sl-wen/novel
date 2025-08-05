@@ -166,14 +166,23 @@ class NovelService:
             tasks.append(search_single_source(source, keyword))
         results_from_sources = await asyncio.gather(*tasks)
         all_results = []
-        for source_results in results_from_sources:
+        source_stats = {}
+        
+        for i, source_results in enumerate(results_from_sources):
+            source_name = searchable_sources[i].rule.get('name', f'Source-{searchable_sources[i].id}')
+            source_stats[source_name] = len(source_results)
             all_results.extend(source_results)
+        
+        # 记录每个书源的结果数量
+        logger.info(f"各书源搜索结果统计: {source_stats}")
+        
         filtered_results = self._filter_and_sort_results(
             all_results, keyword, max_results=max_results
         )
         end_time = time.time()
         logger.info(
-            f"搜索完成: 原始结果 {len(all_results)} 条，"
+            f"搜索完成: 共 {len(searchable_sources)} 个书源，"
+            f"原始结果 {len(all_results)} 条，"
             f"过滤后 {len(filtered_results)} 条，"
             f"耗时 {end_time - start_time:.2f} 秒"
         )
@@ -270,17 +279,13 @@ class NovelService:
         Returns:
             是否为有效结果
         """
-        # 检查书名是否有效
-        if not result.title or len(result.title.strip()) < 1:
-            logger.debug(f"书名无效: '{result.title}'")
+        # 使用新的文本验证器检查书名质量
+        from app.utils.text_validator import TextValidator
+        
+        is_valid, quality_score, failure_reason = TextValidator.is_valid_title(result.title)
+        if not is_valid:
+            logger.debug(f"书名质量不合格: '{result.title}' - {failure_reason} (得分: {quality_score:.2f})")
             return False
-
-        # 暂时禁用乱码检测，因为逻辑有问题
-        # TODO: 改进乱码检测逻辑
-        # invalid_chars = result.title.count('?') + result.title.count('')
-        # if invalid_chars > len(result.title) * 0.7:
-        #     logger.debug(f"包含过多乱码字符: '{result.title}' (乱码字符比例: {invalid_chars/len(result.title):.1%})")
-        #     return False
 
         # 临时放宽URL检查，允许空URL的结果通过
         # 检查URL是否有效
@@ -393,7 +398,7 @@ class NovelService:
         import re
 
         text = re.sub(
-            r'[，。！？；：""' "（）【】《》\s\-_\[\]()]+",
+            r'[，。！？；：""' "（）【】《》\\s\\-_\\[\\]()]+",
             "",
             text,
             flags=re.UNICODE,
@@ -511,7 +516,7 @@ class NovelService:
         toc_parser = TocParser(source)
         return await toc_parser.parse(url, start, end or float("inf"))
 
-    async def download(self, url: str, source_id: int, format: str = "txt") -> str:
+    async def download(self, url: str, source_id: int, format: str = "txt", task_id: Optional[str] = None) -> str:
         """下载小说
 
         Args:
@@ -522,12 +527,12 @@ class NovelService:
         Returns:
             下载文件路径
         """
-        # 使用新的爬虫实现
-        from app.core.crawler import Crawler
+        # 使用增强版爬虫实现
+        from app.core.enhanced_crawler import EnhancedCrawler
         from app.core.config import settings
         
-        crawler = Crawler(settings)
-        return await crawler.download(url, source_id, format)
+        crawler = EnhancedCrawler(settings)
+        return await crawler.download(url, source_id, format, task_id)
 
     async def _download_chapters_with_retry(
         self, toc: List[ChapterInfo], source: Source
