@@ -104,11 +104,26 @@ class BookParser:
             HTML页面内容，失败返回None
         """
         try:
+            # 创建SSL上下文，跳过证书验证
+            connector = aiohttp.TCPConnector(
+                limit=settings.MAX_CONCURRENT_REQUESTS,
+                ssl=False,  # 跳过SSL证书验证
+                use_dns_cache=True,
+                ttl_dns_cache=300,
+            )
+            
+            timeout = aiohttp.ClientTimeout(
+                total=self.timeout,
+                connect=10,
+                sock_read=30
+            )
+            
             async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=self.timeout),
-                connector=aiohttp.TCPConnector(limit=settings.MAX_CONCURRENT_REQUESTS),
+                timeout=timeout,
+                connector=connector,
+                headers=self.headers
             ) as session:
-                async with session.get(url, headers=self.headers) as response:
+                async with session.get(url) as response:
                     if response.status == 200:
                         return await response.text()
                     else:
@@ -198,13 +213,33 @@ class BookParser:
             return ""
 
         try:
+            # 处理meta标签选择器
+            if selector.startswith("meta["):
+                # 解析meta选择器，例如: meta[property="og:novel:book_name"]
+                import re
+                match = re.search(r'meta\[([^\]]+)\]', selector)
+                if match:
+                    attr_part = match.group(1)
+                    # 解析属性，例如: property="og:novel:book_name"
+                    attr_match = re.search(r'([^=]+)="([^"]+)"', attr_part)
+                    if attr_match:
+                        attr_name = attr_match.group(1).strip()
+                        attr_value = attr_match.group(2)
+                        
+                        # 查找对应的meta标签
+                        meta_tag = soup.find("meta", {attr_name: attr_value})
+                        if meta_tag:
+                            return meta_tag.get("content", "")
+            
+            # 处理普通CSS选择器
             element = soup.select_one(selector)
             if element:
                 return element.get_text(strip=True)
+            
+            return ""
         except Exception as e:
             logger.warning(f"提取文本失败: {selector}, 错误: {str(e)}")
-
-        return ""
+            return ""
 
     def _extract_attr(self, soup: BeautifulSoup, selector: str, attr: str) -> str:
         """提取属性值
@@ -221,13 +256,30 @@ class BookParser:
             return ""
 
         try:
+            # 处理meta标签选择器
+            if selector.startswith("meta["):
+                import re
+                match = re.search(r'meta\[([^\]]+)\]', selector)
+                if match:
+                    attr_part = match.group(1)
+                    attr_match = re.search(r'([^=]+)="([^"]+)"', attr_part)
+                    if attr_match:
+                        attr_name = attr_match.group(1).strip()
+                        attr_value = attr_match.group(2)
+                        
+                        meta_tag = soup.find("meta", {attr_name: attr_value})
+                        if meta_tag:
+                            return meta_tag.get("content", "")
+            
+            # 处理普通CSS选择器
             element = soup.select_one(selector)
             if element:
                 return element.get(attr, "")
+            
+            return ""
         except Exception as e:
             logger.warning(f"提取属性失败: {selector}.{attr}, 错误: {str(e)}")
-
-        return ""
+            return ""
 
     def _build_full_url(self, relative_url: str, base_url: str) -> str:
         """构建完整URL

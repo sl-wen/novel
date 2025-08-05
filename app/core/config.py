@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     # 并发设置
     MAX_THREADS: int = os.cpu_count() * 2 if os.cpu_count() else 8
-    MAX_CONCURRENT_REQUESTS: int = 10  # 最大并发请求数
+    MAX_CONCURRENT_REQUESTS: int = 5  # 最大并发请求数
     
     # 下载设置
     DOWNLOAD_CONCURRENT_LIMIT: int = 5  # 下载并发限制
@@ -51,9 +51,9 @@ class Settings(BaseSettings):
     DEFAULT_FORMAT: str = "txt"
 
     # HTTP设置
-    DEFAULT_TIMEOUT: int = 100  # 秒
-    REQUEST_RETRY_TIMES: int = 2  # 请求重试次数
-    REQUEST_RETRY_DELAY: float = 1.0  # 请求重试延迟（秒）
+    DEFAULT_TIMEOUT: int = 300  # 秒
+    REQUEST_RETRY_TIMES: int = 3  # 请求重试次数
+    REQUEST_RETRY_DELAY: float = 2.0  # 请求重试延迟（秒）
     DEFAULT_HEADERS: dict = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
