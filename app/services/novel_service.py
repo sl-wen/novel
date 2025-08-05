@@ -166,14 +166,23 @@ class NovelService:
             tasks.append(search_single_source(source, keyword))
         results_from_sources = await asyncio.gather(*tasks)
         all_results = []
-        for source_results in results_from_sources:
+        source_stats = {}
+        
+        for i, source_results in enumerate(results_from_sources):
+            source_name = searchable_sources[i].rule.get('name', f'Source-{searchable_sources[i].id}')
+            source_stats[source_name] = len(source_results)
             all_results.extend(source_results)
+        
+        # 记录每个书源的结果数量
+        logger.info(f"各书源搜索结果统计: {source_stats}")
+        
         filtered_results = self._filter_and_sort_results(
             all_results, keyword, max_results=max_results
         )
         end_time = time.time()
         logger.info(
-            f"搜索完成: 原始结果 {len(all_results)} 条，"
+            f"搜索完成: 共 {len(searchable_sources)} 个书源，"
+            f"原始结果 {len(all_results)} 条，"
             f"过滤后 {len(filtered_results)} 条，"
             f"耗时 {end_time - start_time:.2f} 秒"
         )
@@ -393,7 +402,7 @@ class NovelService:
         import re
 
         text = re.sub(
-            r'[，。！？；：""' "（）【】《》\s\-_\[\]()]+",
+            r'[，。！？；：""' "（）【】《》\\s\\-_\\[\\]()]+",
             "",
             text,
             flags=re.UNICODE,

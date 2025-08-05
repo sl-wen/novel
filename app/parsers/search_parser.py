@@ -68,9 +68,9 @@ class SearchParser:
             # 解析搜索结果
             results = self._parse_search_results(html, keyword)
 
-            # 限制结果数量
-            if len(results) > settings.MAX_SEARCH_RESULTS:
-                results = results[: settings.MAX_SEARCH_RESULTS]
+            # 限制每个书源的结果数量
+            if len(results) > settings.MAX_RESULTS_PER_SOURCE:
+                results = results[: settings.MAX_RESULTS_PER_SOURCE]
 
             logger.info(
                 f"从书源 {self.source.rule.get('name', self.source.id)} "
@@ -252,14 +252,31 @@ class SearchParser:
         result_elements = soup.select(list_selector)
         logger.info(f"找到 {len(result_elements)} 个搜索结果元素")
 
+        # 解析所有结果
+        all_results = []
         for element in result_elements:
             try:
                 result = self._parse_single_result(element, keyword)
                 if result:
-                    results.append(result)
+                    all_results.append(result)
             except Exception as e:
                 logger.warning(f"解析单个搜索结果失败: {str(e)}")
                 continue
+
+        # 如果结果数量超过限制，按相关性排序并选择最佳结果
+        if len(all_results) > settings.MAX_RESULTS_PER_SOURCE:
+            # 计算相关性得分
+            for result in all_results:
+                result.score = self._calculate_relevance_score(result, keyword)
+            
+            # 按得分降序排序
+            all_results.sort(key=lambda x: getattr(x, 'score', 0), reverse=True)
+            
+            # 只取前N个最相关的结果
+            results = all_results[:settings.MAX_RESULTS_PER_SOURCE]
+            logger.info(f"从 {len(all_results)} 个结果中选择了最相关的 {len(results)} 个")
+        else:
+            results = all_results
 
         return results
 
@@ -391,6 +408,45 @@ class SearchParser:
             logger.debug(f"提取属性失败: {selector}.{attr}, 错误: {str(e)}")
 
         return ""
+
+    def _calculate_relevance_score(self, result: SearchResult, keyword: str) -> float:
+        """计算搜索结果的相关性得分
+
+        Args:
+            result: 搜索结果
+            keyword: 搜索关键词
+
+        Returns:
+            相关性得分（0-1之间）
+        """
+        score = 0.0
+        keyword_lower = keyword.lower()
+        
+        # 书名匹配度（权重最高）
+        if result.title:
+            title_lower = result.title.lower()
+            if keyword_lower == title_lower:
+                score += 1.0  # 完全匹配
+            elif keyword_lower in title_lower:
+                score += 0.8  # 包含关键词
+            elif any(word in title_lower for word in keyword_lower.split()):
+                score += 0.6  # 包含关键词的部分
+        
+        # 作者匹配度（权重中等）
+        if result.author:
+            author_lower = result.author.lower()
+            if keyword_lower == author_lower:
+                score += 0.5  # 作者完全匹配
+            elif keyword_lower in author_lower:
+                score += 0.3  # 作者包含关键词
+        
+        # 简介匹配度（权重较低）
+        if result.intro:
+            intro_lower = result.intro.lower()
+            if keyword_lower in intro_lower:
+                score += 0.1  # 简介包含关键词
+        
+        return min(score, 1.0)  # 确保得分不超过1.0
 
     def _decode_content(self, content: bytes, charset: Optional[str]) -> str:
         """解码内容
