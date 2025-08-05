@@ -112,7 +112,7 @@ class TocParser:
         """
         # 如果配置了目录URL模板，使用模板构建
         toc_url_template = self.toc_rule.get("url", "")
-        if toc_url_template:
+        if toc_url_template and toc_url_template.startswith("http"):
             # 替换占位符
             toc_url = toc_url_template.replace("{url}", url)
             return toc_url
@@ -148,6 +148,8 @@ class TocParser:
             HTML页面内容，失败返回None
         """
         try:
+            logger.info(f"开始获取HTML: {url}")
+            
             # 创建SSL上下文，跳过证书验证
             connector = aiohttp.TCPConnector(
                 limit=settings.MAX_CONCURRENT_REQUESTS,
@@ -162,14 +164,27 @@ class TocParser:
                 sock_read=30
             )
             
+            # 添加更多请求头
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            }
+            
             async with aiohttp.ClientSession(
                 timeout=timeout,
                 connector=connector,
-                headers=self.headers
+                headers=headers
             ) as session:
                 async with session.get(url) as response:
+                    logger.info(f"响应状态码: {response.status}")
                     if response.status == 200:
-                        return await response.text()
+                        html = await response.text()
+                        logger.info(f"获取HTML成功，长度: {len(html)}")
+                        return html
                     else:
                         logger.error(f"请求失败: {url}, 状态码: {response.status}")
                         return None
@@ -228,6 +243,8 @@ class TocParser:
         Returns:
             章节列表
         """
+        logger.info(f"开始解析目录，HTML长度: {len(html)}")
+        
         soup = BeautifulSoup(html, "html.parser")
         chapters = []
 
@@ -245,8 +262,8 @@ class TocParser:
                 continue
                 
             elements = soup.select(selector)
+            logger.info(f"选择器 '{selector}' 找到 {len(elements)} 个元素")
             if elements:
-                logger.info(f"使用选择器 {selector} 找到 {len(elements)} 个章节元素")
                 chapter_elements = elements
                 break
         
@@ -254,15 +271,21 @@ class TocParser:
             logger.warning("未找到任何章节元素")
             return chapters
 
+        logger.info(f"开始解析 {len(chapter_elements)} 个章节元素")
+        
         for index, element in enumerate(chapter_elements, 1):
             try:
                 chapter = self._parse_single_chapter(element, toc_url, index)
                 if chapter:
                     chapters.append(chapter)
+                    logger.debug(f"成功解析章节 {index}: {chapter.title}")
+                else:
+                    logger.warning(f"解析章节 {index} 失败")
             except Exception as e:
                 logger.warning(f"解析单个章节失败: {str(e)}")
                 continue
 
+        logger.info(f"目录解析完成，成功解析 {len(chapters)} 个章节")
         return chapters
 
     def _parse_single_chapter(
@@ -307,6 +330,11 @@ class TocParser:
             # 获取更新时间（可选）
             update_time_selector = self.toc_rule.get("update_time", "")
             update_time = self._extract_text(element, update_time_selector)
+
+            # 验证必要字段
+            if not title or not url:
+                logger.warning(f"章节 {order} 缺少必要字段: title='{title}', url='{url}'")
+                return None
 
             return ChapterInfo(
                 title=title or f"第{order}章",
