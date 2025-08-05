@@ -37,15 +37,22 @@ class Source:
         Returns:
             书源规则
         """
-        # 注意：这个方法现在主要用于没有直接提供rule_data的情况
-        # 如果规则文件命名方式是 rule-XX.json，这里可能需要调整加载逻辑
-        rule_path = Path(settings.RULES_PATH) / f"rule-{source_id}.json"
-
-        if not rule_path.exists():
-            raise FileNotFoundError(f"书源规则文件不存在: {rule_path}")
-
-        with open(rule_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        # 尝试不同的文件名格式：先尝试零填充格式，再尝试普通格式
+        rules_path = Path(settings.RULES_PATH)
+        
+        # 尝试零填充格式 (rule-05.json)
+        rule_path = rules_path / f"rule-{source_id:02d}.json"
+        if rule_path.exists():
+            with open(rule_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        
+        # 尝试普通格式 (rule-5.json)
+        rule_path = rules_path / f"rule-{source_id}.json"
+        if rule_path.exists():
+            with open(rule_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        
+        raise FileNotFoundError(f"书源规则文件不存在: {rules_path}/rule-{source_id:02d}.json 或 {rules_path}/rule-{source_id}.json")
 
     def _apply_default_rule(self):
         """应用默认规则，设置缺失的配置项"""
@@ -62,18 +69,18 @@ class Source:
         if "chapter" in self.rule and not self.rule["chapter"].get("baseUri"):
             self.rule["chapter"]["baseUri"] = self.rule.get("url", "")
 
-        # 设置timeout默认值
+        # 设置timeout默认值 (调整为更合理的值)
         if "search" in self.rule and not self.rule["search"].get("timeout"):
-            self.rule["search"]["timeout"] = 10
+            self.rule["search"]["timeout"] = 8
 
         if "book" in self.rule and not self.rule["book"].get("timeout"):
-            self.rule["book"]["timeout"] = 10
+            self.rule["book"]["timeout"] = 8
 
         if "toc" in self.rule and not self.rule["toc"].get("timeout"):
-            self.rule["toc"]["timeout"] = 15
+            self.rule["toc"]["timeout"] = 10
 
         if "chapter" in self.rule and not self.rule["chapter"].get("timeout"):
-            self.rule["chapter"]["timeout"] = 10
+            self.rule["chapter"]["timeout"] = 8
 
     @classmethod
     def from_rule_file(cls, rule_file: Path) -> "Source":
