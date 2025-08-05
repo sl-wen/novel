@@ -148,11 +148,26 @@ class TocParser:
             HTML页面内容，失败返回None
         """
         try:
+            # 创建SSL上下文，跳过证书验证
+            connector = aiohttp.TCPConnector(
+                limit=settings.MAX_CONCURRENT_REQUESTS,
+                ssl=False,  # 跳过SSL证书验证
+                use_dns_cache=True,
+                ttl_dns_cache=300,
+            )
+            
+            timeout = aiohttp.ClientTimeout(
+                total=self.timeout,
+                connect=10,
+                sock_read=30
+            )
+            
             async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=self.timeout),
-                connector=aiohttp.TCPConnector(limit=settings.MAX_CONCURRENT_REQUESTS),
+                timeout=timeout,
+                connector=connector,
+                headers=self.headers
             ) as session:
-                async with session.get(url, headers=self.headers) as response:
+                async with session.get(url) as response:
                     if response.status == 200:
                         return await response.text()
                     else:
@@ -172,11 +187,26 @@ class TocParser:
             HTML页面内容，失败返回None
         """
         try:
+            # 创建SSL上下文，跳过证书验证
+            connector = aiohttp.TCPConnector(
+                limit=settings.MAX_CONCURRENT_REQUESTS,
+                ssl=False,  # 跳过SSL证书验证
+                use_dns_cache=True,
+                ttl_dns_cache=300,
+            )
+            
+            timeout = aiohttp.ClientTimeout(
+                total=self.timeout,
+                connect=10,
+                sock_read=30
+            )
+            
             async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=self.timeout),
-                connector=aiohttp.TCPConnector(limit=settings.MAX_CONCURRENT_REQUESTS),
+                timeout=timeout,
+                connector=connector,
+                headers=self.headers
             ) as session:
-                async with session.get(url, headers=self.headers) as response:
+                async with session.get(url) as response:
                     if response.status == 200:
                         return await response.text()
                     else:

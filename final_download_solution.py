@@ -1,108 +1,116 @@
 #!/usr/bin/env python3
 """
-最终的下载问题解决方案
+最终的下载解决方案
 """
 
 import requests
-import time
 import json
-
-def create_final_solution():
-    """创建最终的解决方案"""
-    print("🎯 最终的下载问题解决方案...")
-    
-    # 1. 问题总结
-    print("\n1. 问题总结:")
-    print("   ✅ 搜索功能正常")
-    print("   ✅ API服务正常运行")
-    print("   ✅ 书源加载成功")
-    print("   ❌ SSL证书验证失败")
-    print("   ❌ 网站访问被阻止")
-    print("   ❌ 解析器无法获取内容")
-    
-    # 2. 解决方案
-    print("\n2. 解决方案:")
-    solution = '''
-🔧 解决方案实施步骤：
-
-1. 修复SSL证书问题
-   - 在 aiohttp 请求中禁用SSL验证
-   - 添加更宽松的SSL配置
-
-2. 改进错误处理
-   - 添加更详细的错误日志
-   - 实现优雅的降级机制
-
-3. 尝试不同的书源
-   - 测试其他可用的书源
-   - 验证书源规则配置
-
-4. 优化网络请求
-   - 增加重试机制
-   - 添加请求头伪装
-   - 实现请求延迟
-
-5. 创建备用方案
-   - 实现本地测试数据
-   - 提供模拟下载功能
-'''
-    print(solution)
-    
-    # 3. 创建修复脚本
-    print("\n3. 创建修复脚本:")
-    fix_script = '''
-#!/usr/bin/env python3
-"""
-下载功能最终修复
-"""
-
-import requests
 import time
-import json
 
-def test_final_fix():
-    """测试最终修复"""
-    print("🚀 测试最终修复...")
+def final_download_solution():
+    """最终的下载解决方案"""
+    print("🎯 最终的下载解决方案...")
     
     base_url = "http://localhost:8000"
     
-    # 1. 测试搜索功能
-    print("1. 测试搜索功能...")
+    # 1. 测试所有书源
+    print("1. 测试所有书源...")
     try:
-        response = requests.get(
-            f"{base_url}/api/novels/search",
-            params={"keyword": "斗破苍穹", "maxResults": 3},
-            timeout=60
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            results = data.get("data", [])
-            print(f"   ✅ 搜索成功，找到 {len(results)} 个结果")
+        # 获取所有书源
+        sources_response = requests.get(f"{base_url}/api/novels/sources", timeout=10)
+        if sources_response.status_code == 200:
+            sources_data = sources_response.json()
+            sources = sources_data.get("data", [])
+            print(f"   - 可用书源数量: {len(sources)}")
             
-            # 尝试不同的书源
-            for i, result in enumerate(results[:3]):
-                print(f"\\n   测试结果 {i+1}:")
-                print(f"   - 标题: {result.get('title', result.get('bookName'))}")
-                print(f"   - URL: {result.get('url')}")
-                print(f"   - 书源ID: {result.get('source_id')}")
+            # 测试每个书源
+            working_sources = []
+            for source in sources:
+                source_id = source.get("id")
+                source_name = source.get("name", f"Unknown-{source_id}")
                 
-                # 测试下载
+                try:
+                    # 搜索测试
+                    search_response = requests.get(
+                        f"{base_url}/api/novels/search",
+                        params={"keyword": "斗破苍穹", "maxResults": 1},
+                        timeout=30
+                    )
+                    
+                    if search_response.status_code == 200:
+                        search_data = search_response.json()
+                        results = search_data.get("data", [])
+                        if results:
+                            result = results[0]
+                            print(f"   - 书源 {source_name} (ID: {source_id}): 搜索成功")
+                            
+                            # 测试目录
+                            toc_response = requests.get(
+                                f"{base_url}/api/novels/toc",
+                                params={
+                                    "url": result.get("url"),
+                                    "sourceId": source_id
+                                },
+                                timeout=30
+                            )
+                            
+                            if toc_response.status_code == 200:
+                                toc_data = toc_response.json()
+                                chapters = toc_data.get("data", [])
+                                print(f"     - 目录章节数: {len(chapters)}")
+                                
+                                if chapters:
+                                    print(f"     ✅ 书源 {source_name} 完全可用")
+                                    working_sources.append({
+                                        'id': source_id,
+                                        'name': source_name,
+                                        'url': result.get("url"),
+                                        'chapters': len(chapters)
+                                    })
+                                else:
+                                    print(f"     ⚠️  书源 {source_name} 目录为空")
+                            else:
+                                print(f"     ❌ 书源 {source_name} 目录API失败")
+                        else:
+                            print(f"     ❌ 书源 {source_name} 搜索无结果")
+                    else:
+                        print(f"     ❌ 书源 {source_name} 搜索API失败")
+                        
+                except Exception as e:
+                    print(f"     ❌ 书源 {source_name} 测试异常: {str(e)}")
+                    continue
+            
+            print(f"\n   - 找到 {len(working_sources)} 个可用书源")
+            for source in working_sources:
+                print(f"     - {source['name']} (ID: {source['id']}): {source['chapters']} 章")
+            
+            # 2. 测试下载功能
+            if working_sources:
+                print("\n2. 测试下载功能...")
+                best_source = working_sources[0]  # 使用第一个可用书源
+                
                 try:
                     download_response = requests.get(
                         f"{base_url}/api/novels/download",
                         params={
-                            "url": result.get("url"),
-                            "sourceId": result.get("source_id"),
+                            "url": best_source["url"],
+                            "sourceId": best_source["id"],
                             "format": "txt"
                         },
                         timeout=300,
                         stream=True
                     )
                     
+                    print(f"   - 下载状态码: {download_response.status_code}")
                     if download_response.status_code == 200:
+                        # 检查响应头
+                        content_type = download_response.headers.get("content-type", "")
+                        content_disposition = download_response.headers.get("content-disposition", "")
+                        print(f"   - Content-Type: {content_type}")
+                        print(f"   - Content-Disposition: {content_disposition}")
+                        
                         # 保存测试文件
-                        filename = f"test_download_{i+1}.txt"
+                        filename = "final_test_download.txt"
                         with open(filename, "wb") as f:
                             for chunk in download_response.iter_content(chunk_size=8192):
                                 if chunk:
@@ -112,101 +120,71 @@ def test_final_fix():
                         file_size = os.path.getsize(filename)
                         print(f"   ✅ 下载成功，文件大小: {file_size} 字节")
                         
-                        # 清理测试文件
-                        os.remove(filename)
-                        print("   - 测试文件已清理")
-                        return True
+                        # 检查文件内容
+                        if file_size > 0:
+                            with open(filename, "r", encoding="utf-8") as f:
+                                content = f.read(500)  # 读取前500字符
+                                print(f"   - 文件内容预览: {content[:100]}...")
+                            
+                            # 清理测试文件
+                            os.remove(filename)
+                            print("   - 测试文件已清理")
+                            print("   🎉 下载功能完全修复！")
+                            return True
+                        else:
+                            print("   ❌ 下载的文件为空")
+                            return False
                     else:
                         print(f"   ❌ 下载失败: {download_response.text}")
+                        return False
                         
                 except Exception as e:
                     print(f"   ❌ 下载异常: {str(e)}")
+                    return False
+            else:
+                print("   ❌ 没有找到可用的书源")
+                return False
+                
         else:
-            print(f"   ❌ 搜索失败: {response.text}")
+            print(f"   ❌ 获取书源失败: {sources_response.text}")
+            return False
             
     except Exception as e:
-        print(f"   ❌ 搜索异常: {str(e)}")
+        print(f"   ❌ 测试失败: {str(e)}")
+        return False
     
     return False
 
-if __name__ == "__main__":
-    test_final_fix()
-'''
-    print(fix_script)
+def create_alternative_solution():
+    """创建备用解决方案"""
+    print("\n3. 创建备用解决方案...")
     
-    # 4. 创建SSL修复
-    print("\n4. 创建SSL修复:")
-    ssl_fix = '''
-# 修改 app/parsers/book_parser.py 中的 _fetch_html 方法
+    solution = '''
+🔧 备用解决方案：
 
-async def _fetch_html(self, url: str) -> Optional[str]:
-    """获取HTML页面"""
-    try:
-        # 创建SSL上下文，跳过证书验证
-        connector = aiohttp.TCPConnector(
-            limit=settings.MAX_CONCURRENT_REQUESTS,
-            ssl=False,  # 跳过SSL证书验证
-            use_dns_cache=True,
-            ttl_dns_cache=300,
-        )
-        
-        timeout = aiohttp.ClientTimeout(
-            total=self.timeout,
-            connect=10,
-            sock_read=30
-        )
-        
-        async with aiohttp.ClientSession(
-            timeout=timeout,
-            connector=connector,
-            headers=self.headers
-        ) as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    return await response.text()
-                else:
-                    logger.error(f"请求失败: {url}, 状态码: {response.status}")
-                    return None
-    except Exception as e:
-        logger.error(f"请求异常: {url}, 错误: {str(e)}")
-        return None
+1. 修复当前书源
+   - 检查网站是否使用JavaScript动态加载
+   - 尝试使用不同的CSS选择器
+   - 添加请求延迟和重试机制
+
+2. 使用其他书源
+   - 测试所有20个书源
+   - 找到可用的书源
+   - 更新书源规则
+
+3. 实现降级机制
+   - 创建本地测试数据
+   - 提供模拟下载功能
+   - 实现错误恢复
+
+4. 优化网络请求
+   - 添加更多请求头
+   - 实现请求轮换
+   - 添加代理支持
 '''
-    print(ssl_fix)
-    
-    # 5. 总结
-    print("\n5. 解决方案总结:")
-    summary = '''
-📋 下载问题解决方案总结：
-
-🔍 问题诊断：
-- API服务正常运行 ✅
-- 搜索功能正常 ✅
-- 书源加载成功 ✅
-- SSL证书验证失败 ❌
-- 网站访问被阻止 ❌
-- 解析器无法获取内容 ❌
-
-🔧 解决方案：
-1. 修复SSL证书验证问题
-2. 改进网络请求配置
-3. 尝试不同的书源
-4. 添加更详细的错误处理
-5. 实现优雅的降级机制
-
-📝 实施步骤：
-1. 修改网络请求配置，禁用SSL验证
-2. 重启API服务
-3. 测试不同的书源
-4. 验证下载功能
-5. 监控下载性能
-
-🎯 预期效果：
-- 解决SSL证书问题
-- 提高网站访问成功率
-- 改善下载功能稳定性
-- 提供更好的用户体验
-'''
-    print(summary)
+    print(solution)
 
 if __name__ == "__main__":
-    create_final_solution()
+    success = final_download_solution()
+    if not success:
+        create_alternative_solution()
