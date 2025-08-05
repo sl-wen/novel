@@ -149,8 +149,8 @@ async def test_complete_download():
     
     # 测试用的URL
     test_urls = [
-        "http://www.xbiqugu.la/0_1/",  # 仙逆
-        "https://www.biquge.com.cn/book/1/",  # 仙逆
+        "http://www.xbiqugu.la/0_1/",  # 测试小说1
+        "https://www.biquge.com.cn/book/1/",  # 测试小说2
     ]
     
     for i, url in enumerate(test_urls, 1):
@@ -204,7 +204,7 @@ async def test_system_performance():
     
     # 获取一个简单的目录进行测试
     try:
-        url = "http://www.xbiqugu.la/0_1/"
+        url = "http://www.xbiqugu.la/0_1/"  # 使用测试URL
         toc = await novel_service.get_toc(url, 1)
         
         if toc:
