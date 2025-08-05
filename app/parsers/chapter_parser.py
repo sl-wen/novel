@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from app.core.config import settings
 from app.core.source import Source
 from app.models.chapter import Chapter
+from app.utils.content_validator import ContentValidator
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class ChapterParser:
             "Referer": source.rule.get("url", ""),
         }
         self.chapter_rule = source.rule.get("chapter", {})
+        self.content_validator = ContentValidator()
 
     async def parse(self, url: str, title: str, order: int) -> Chapter:
         """解析章节内容
@@ -158,7 +160,7 @@ class ChapterParser:
             content_element = soup.select_one(selector)
             if content_element:
                 content = content_element.get_text(separator="\n", strip=True)
-                if content and len(content) > 100:  # 确保内容足够长
+                if content and len(content) > settings.MIN_CONTENT_LENGTH:  # 确保内容足够长
                     logger.debug(f"使用选择器 {selector} 成功获取内容")
                     break
                 else:
@@ -169,11 +171,14 @@ class ChapterParser:
             logger.warning(f"未找到有效的章节内容")
             return "无法获取章节内容：内容元素不存在"
 
-        # 过滤广告和垃圾内容
-        content = self._filter_content(content, ad_patterns)
-
-        # 格式化内容
-        content = self._format_content(content)
+        # 使用内容验证器清理和验证内容
+        content = self.content_validator.clean_content(content)
+        
+        # 验证内容质量
+        is_valid, error_msg = self.content_validator.validate_chapter_content(content, title)
+        if not is_valid:
+            logger.warning(f"章节内容质量不佳: {title} - {error_msg}")
+            content = f"（本章获取失败：{error_msg}）"
 
         return content
 

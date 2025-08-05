@@ -16,6 +16,8 @@ from app.parsers.chapter_parser import ChapterParser
 from app.parsers.search_parser import SearchParser
 from app.parsers.toc_parser import TocParser
 from app.utils.file import FileUtils
+from app.utils.download_monitor import DownloadMonitor
+from app.utils.content_validator import ChapterValidator
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,8 @@ class NovelService:
         """初始化服务"""
         self.sources = {}
         self._load_sources()
+        self.monitor = DownloadMonitor()
+        self.chapter_validator = ChapterValidator()
 
     def _load_sources(self):
         """加载所有书源，只加载本地规则目录下的规则文件"""
@@ -535,6 +539,10 @@ class NovelService:
         # 使用改进的章节下载方法
         chapters = await self._download_chapters_with_retry(toc, source)
 
+        # 输出最终报告
+        final_report = self.monitor.get_final_report()
+        logger.info(final_report)
+
         file_path = self._generate_file(book, chapters, format, download_dir)
 
         return str(file_path)
@@ -551,14 +559,17 @@ class NovelService:
         Returns:
             章节列表
         """
+        # 初始化监控器
+        self.monitor.start_download(len(toc))
+        
         chapter_parser = ChapterParser(source)
         chapters = []
         failed_chapters = []
         
         # 并发控制参数
-        max_concurrent = 5  # 最大并发数
-        retry_times = 3     # 重试次数
-        retry_delay = 2.0   # 重试延迟
+        max_concurrent = settings.DOWNLOAD_CONCURRENT_LIMIT
+        retry_times = settings.DOWNLOAD_RETRY_TIMES
+        retry_delay = settings.DOWNLOAD_RETRY_DELAY
         
         logger.info(f"开始下载 {len(toc)} 章，最大并发数: {max_concurrent}")
         
@@ -579,19 +590,29 @@ class NovelService:
             
             # 处理结果
             for j, result in enumerate(batch_results):
+                chapter_info = batch[j]
+                self.monitor.chapter_started(chapter_info.title, chapter_info.url)
+                
                 if isinstance(result, Exception):
-                    logger.error(f"章节下载失败: {batch[j].title}, 错误: {str(result)}")
-                    failed_chapters.append(batch[j])
-                elif result and len(result.content) > 50:
+                    error_msg = str(result)
+                    logger.error(f"章节下载失败: {chapter_info.title}, 错误: {error_msg}")
+                    self.monitor.chapter_failed(chapter_info.title, error_msg)
+                    failed_chapters.append(chapter_info)
+                elif result and len(result.content) > settings.MIN_CHAPTER_LENGTH:
+                    # 计算质量评分
+                    quality_score = self.chapter_validator.get_chapter_quality_score(result.content)
+                    self.monitor.chapter_completed(chapter_info.title, len(result.content), quality_score)
                     chapters.append(result)
-                    logger.debug(f"章节下载成功: {result.title} ({len(result.content)} 字符)")
+                    logger.debug(f"章节下载成功: {result.title} ({len(result.content)} 字符, 质量评分: {quality_score:.2f})")
                 else:
-                    logger.warning(f"章节内容过短或为空: {batch[j].title}")
-                    failed_chapters.append(batch[j])
+                    error_msg = "内容过短或为空"
+                    logger.warning(f"章节内容过短或为空: {chapter_info.title}")
+                    self.monitor.chapter_failed(chapter_info.title, error_msg)
+                    failed_chapters.append(chapter_info)
             
             # 批次间延迟，避免请求过于频繁
             if i + max_concurrent < len(toc):
-                await asyncio.sleep(1)
+                await asyncio.sleep(settings.DOWNLOAD_BATCH_DELAY)
         
         logger.info(f"章节下载完成: 成功 {len(chapters)} 章，失败 {len(failed_chapters)} 章")
         
@@ -627,7 +648,7 @@ class NovelService:
                 )
                 
                 # 检查内容质量
-                if chapter and len(chapter.content) > 50:
+                if chapter and len(chapter.content) > settings.MIN_CHAPTER_LENGTH:
                     return chapter
                 else:
                     logger.warning(f"章节内容质量不佳 (第{attempt+1}次): {chapter_info.title}")
