@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from app.core.config import settings
 from app.core.source import Source
 from app.models.chapter import ChapterInfo
+from app.utils.http_client import HttpClient
 
 logger = logging.getLogger(__name__)
 
@@ -147,50 +148,9 @@ class TocParser:
         Returns:
             HTML页面内容，失败返回None
         """
-        try:
-            logger.info(f"开始获取HTML: {url}")
-            
-            # 创建SSL上下文，跳过证书验证
-            connector = aiohttp.TCPConnector(
-                limit=settings.MAX_CONCURRENT_REQUESTS,
-                ssl=False,  # 跳过SSL证书验证
-                use_dns_cache=True,
-                ttl_dns_cache=300,
-            )
-            
-            timeout = aiohttp.ClientTimeout(
-                total=self.timeout,
-                connect=10,
-                sock_read=30
-            )
-            
-            # 添加更多请求头
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-            }
-            
-            async with aiohttp.ClientSession(
-                timeout=timeout,
-                connector=connector,
-                headers=headers
-            ) as session:
-                async with session.get(url) as response:
-                    logger.info(f"响应状态码: {response.status}")
-                    if response.status == 200:
-                        html = await response.text()
-                        logger.info(f"获取HTML成功，长度: {len(html)}")
-                        return html
-                    else:
-                        logger.error(f"请求失败: {url}, 状态码: {response.status}")
-                        return None
-        except Exception as e:
-            logger.error(f"请求异常: {url}, 错误: {str(e)}")
-            return None
+        # 使用统一的HTTP客户端
+        referer = self.source.rule.get("url", "")
+        return await HttpClient.fetch_html(url, self.timeout, referer)
 
     async def _fetch_html_single(self, url: str) -> Optional[str]:
         """获取单个HTML页面（用于分页请求）
@@ -201,37 +161,9 @@ class TocParser:
         Returns:
             HTML页面内容，失败返回None
         """
-        try:
-            # 创建SSL上下文，跳过证书验证
-            connector = aiohttp.TCPConnector(
-                limit=settings.MAX_CONCURRENT_REQUESTS,
-                ssl=False,  # 跳过SSL证书验证
-                use_dns_cache=True,
-                ttl_dns_cache=300,
-            )
-            
-            timeout = aiohttp.ClientTimeout(
-                total=self.timeout,
-                connect=10,
-                sock_read=30
-            )
-            
-            async with aiohttp.ClientSession(
-                timeout=timeout,
-                connector=connector,
-                headers=self.headers
-            ) as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        return await response.text()
-                    else:
-                        logger.warning(
-                            f"分页请求失败: {url}, 状态码: {response.status}"
-                        )
-                        return None
-        except Exception as e:
-            logger.warning(f"分页请求异常: {url}, 错误: {str(e)}")
-            return None
+        # 使用统一的HTTP客户端
+        referer = self.source.rule.get("url", "")
+        return await HttpClient.fetch_html(url, self.timeout, referer)
 
     def _parse_toc(self, html: str, toc_url: str) -> List[ChapterInfo]:
         """解析目录
