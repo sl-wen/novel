@@ -31,6 +31,74 @@ class NovelService:
         self._load_sources()
         self.monitor = DownloadMonitor()
         self.chapter_validator = ChapterValidator()
+        # 验证书源可用性
+        asyncio.create_task(self._validate_sources_async())
+
+    async def _validate_sources_async(self):
+        """异步验证书源可用性"""
+        try:
+            await self._validate_sources()
+        except Exception as e:
+            logger.error(f"验证书源可用性时出错: {str(e)}")
+
+    async def _validate_sources(self):
+        """验证所有书源的可用性"""
+        import aiohttp
+        import asyncio
+        
+        logger.info("开始验证书源可用性...")
+        
+        async def check_source(source_id, source):
+            """检查单个书源的可用性"""
+            try:
+                url = source.rule.get("url", "")
+                if not url:
+                    return source_id, False, "未配置URL"
+                
+                # 创建超时设置
+                timeout = aiohttp.ClientTimeout(total=10, connect=5)
+                connector = aiohttp.TCPConnector(ssl=False)
+                
+                async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+                    async with session.head(url) as response:
+                        if response.status < 400:
+                            return source_id, True, f"状态码: {response.status}"
+                        else:
+                            return source_id, False, f"状态码: {response.status}"
+            except Exception as e:
+                return source_id, False, str(e)
+        
+        # 并发检查所有书源
+        tasks = [check_source(sid, source) for sid, source in self.sources.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        available_sources = []
+        unavailable_sources = []
+        
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"检查书源时出现异常: {result}")
+                continue
+                
+            source_id, is_available, message = result
+            source_name = self.sources[source_id].rule.get("name", f"书源{source_id}")
+            
+            if is_available:
+                available_sources.append(source_id)
+                logger.info(f"✅ {source_name} (ID: {source_id}) 可用 - {message}")
+            else:
+                unavailable_sources.append(source_id)
+                logger.warning(f"❌ {source_name} (ID: {source_id}) 不可用 - {message}")
+        
+        logger.info(f"书源验证完成: {len(available_sources)} 个可用, {len(unavailable_sources)} 个不可用")
+        
+        # 如果默认书源不可用，自动切换到第一个可用的书源
+        if settings.DEFAULT_SOURCE_ID not in available_sources and available_sources:
+            old_default = settings.DEFAULT_SOURCE_ID
+            new_default = available_sources[0]
+            logger.warning(f"默认书源 {old_default} 不可用，建议切换到书源 {new_default}")
+        
+        return available_sources, unavailable_sources
 
     def _load_sources(self):
         """加载所有书源，只加载本地规则目录下的规则文件"""
@@ -510,11 +578,40 @@ class NovelService:
         Returns:
             章节列表
         """
+        # 首先尝试指定的书源
         source = self.sources.get(source_id)
         if not source:
             raise ValueError(f"无效的书源ID: {source_id}")
-        toc_parser = TocParser(source)
-        return await toc_parser.parse(url, start, end or float("inf"))
+        
+        try:
+            toc_parser = TocParser(source)
+            result = await toc_parser.parse(url, start, end or float("inf"))
+            if result:  # 如果成功获取到目录
+                return result
+            logger.warning(f"书源 {source_id} 未能获取到目录，尝试其他书源")
+        except Exception as e:
+            logger.error(f"书源 {source_id} 获取目录失败: {str(e)}")
+            logger.info("尝试使用其他可用书源...")
+        
+        # 如果主要书源失败，尝试其他可用的书源
+        available_sources = [sid for sid in self.sources.keys() if sid != source_id]
+        logger.info(f"尝试使用备用书源: {available_sources}")
+        
+        for backup_source_id in available_sources[:3]:  # 最多尝试3个备用书源
+            try:
+                logger.info(f"尝试备用书源 {backup_source_id}")
+                backup_source = self.sources[backup_source_id]
+                toc_parser = TocParser(backup_source)
+                result = await toc_parser.parse(url, start, end or float("inf"))
+                if result:
+                    logger.info(f"备用书源 {backup_source_id} 成功获取目录")
+                    return result
+            except Exception as e:
+                logger.warning(f"备用书源 {backup_source_id} 也失败了: {str(e)}")
+                continue
+        
+        # 所有书源都失败了
+        raise ValueError("获取小说目录失败：所有书源都无法访问")
 
     async def download(self, url: str, source_id: int, format: str = "txt", task_id: Optional[str] = None) -> str:
         """下载小说

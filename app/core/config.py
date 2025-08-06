@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # 书源设置
     RULES_PATH: str = str(ROOT_DIR / "rules")
-    DEFAULT_SOURCE_ID: int = 1
+    DEFAULT_SOURCE_ID: int = 2  # 改为书源2，因为书源1无法访问
 
     # 并发设置
     MAX_THREADS: int = os.cpu_count() * 2 if os.cpu_count() else 8
