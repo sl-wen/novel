@@ -31,8 +31,8 @@
   },
   "toc": {
     "list": ".all > ul > li > a",
-    "title": "",
-    "url": "",
+    "title": "text",
+    "url": "href",
     "has_pages": false,
     "next_page": ""
   },

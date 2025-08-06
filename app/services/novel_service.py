@@ -613,6 +613,25 @@ class NovelService:
         # 所有书源都失败了
         raise ValueError("获取小说目录失败：所有书源都无法访问")
 
+    async def get_chapter_content(self, url: str, source_id: int) -> Chapter:
+        """获取章节内容
+
+        Args:
+            url: 章节URL
+            source_id: 书源ID
+
+        Returns:
+            章节内容
+        """
+        source = self.sources.get(source_id)
+        if not source:
+            raise ValueError(f"无效的书源ID: {source_id}")
+        
+        chapter_parser = ChapterParser(source)
+        # 从URL中提取章节标题，或使用默认值
+        title = url.split('/')[-2] if '/' in url else "未知章节"
+        return await chapter_parser.parse(url, title, 1)
+
     async def download(self, url: str, source_id: int, format: str = "txt", task_id: Optional[str] = None) -> str:
         """下载小说
 

@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.source import Source
 from app.models.chapter import Chapter
 from app.utils.content_validator import ContentValidator
+from app.utils.http_client import HttpClient
 
 logger = logging.getLogger(__name__)
 
@@ -106,29 +107,9 @@ class ChapterParser:
         Returns:
             HTML页面内容，失败返回None
         """
-        try:
-            async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=self.timeout),
-                connector=aiohttp.TCPConnector(limit=settings.MAX_CONCURRENT_REQUESTS),
-            ) as session:
-                async with session.get(url, headers=self.headers) as response:
-                    if response.status == 200:
-                        return await response.text()
-                    else:
-                        logger.error(f"请求失败: {url}, 状态码: {response.status}")
-                        return None
-        except asyncio.TimeoutError:
-            logger.error(f"请求超时: {url}")
-            return None
-        except aiohttp.ClientError as e:
-            logger.error(f"HTTP客户端错误: {url}, 错误: {str(e)}")
-            return None
-        except Exception as e:
-            logger.error(
-                f"书源 {self.source.rule.get('name', self.source.id)} "
-                f"获取章节内容失败: {url}, 错误: {str(e)}"
-            )
-            return None
+        # 使用统一的HTTP客户端
+        referer = self.source.rule.get("url", "")
+        return await HttpClient.fetch_html(url, self.timeout, referer)
 
     def _parse_chapter_content(self, html: str) -> str:
         """解析章节内容
