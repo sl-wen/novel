@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import re
 from typing import List, Optional
+from urllib.parse import urljoin, urlparse
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -31,6 +33,7 @@ class TocParser:
             "Referer": source.rule.get("url", ""),
         }
         self.toc_rule = source.rule.get("toc", {})
+        self.base_url = source.rule.get("url", "")
 
     async def parse(
         self, url: str, start: int = 1, end: float = float("inf")
@@ -45,45 +48,32 @@ class TocParser:
         Returns:
             章节列表
         """
+        logger.info(f"开始解析目录: {url}")
+        
         # 获取目录URL
         toc_url = self._get_toc_url(url)
         logger.info(f"构建的目录URL: {toc_url}")
 
-        # 发送请求获取目录页面
-        html = await self._fetch_html(toc_url)
-        if not html:
-            logger.error(
-                f"从书源 {self.source.rule.get('name', self.source.id)} "
-                f"获取目录失败: {toc_url}"
-            )
+        # 多策略获取目录
+        chapters = await self._parse_toc_with_strategies(toc_url)
+        
+        if not chapters:
+            logger.warning(f"所有策略都未能获取到目录，尝试备用方法")
+            chapters = await self._fallback_toc_parsing(url, toc_url)
+
+        if not chapters:
+            logger.error(f"从书源 {self.source.rule.get('name', self.source.id)} 获取目录失败: {toc_url}")
             return []
 
-        logger.info(f"目录页面HTML长度: {len(html)}")
-
-        # 解析目录
-        chapters = self._parse_toc(html, toc_url)
-
         # 处理分页
-        if self.toc_rule.get("has_pages", False):
+        if self.toc_rule.get("has_pages", False) or self.toc_rule.get("pagination", False):
             logger.info("处理目录分页...")
-            # 获取总页数
-            total_pages = self._get_total_pages(html)
-            logger.info(f"总页数: {total_pages}")
+            additional_chapters = await self._handle_pagination(toc_url)
+            chapters.extend(additional_chapters)
 
-            # 获取其他页的目录
-            if total_pages > 1:
-                tasks = []
-                for page in range(2, total_pages + 1):
-                    page_url = self._get_toc_page_url(toc_url, page)
-                    tasks.append(self._fetch_and_parse_page(page_url))
-
-                # 并发获取其他页的目录
-                other_chapters = await asyncio.gather(*tasks)
-
-                # 合并结果
-                for page_chapters in other_chapters:
-                    chapters.extend(page_chapters)
-
+        # 数据清洗和验证
+        chapters = self._clean_and_validate_chapters(chapters)
+        
         # 排序章节
         chapters.sort(key=lambda x: x.order)
 
@@ -98,7 +88,7 @@ class TocParser:
 
         logger.info(
             f"书源 {self.source.rule.get('name', self.source.id)} "
-            f"获取到 {len(result_chapters)} 个章节"
+            f"获取到 {len(result_chapters)} 个章节（总共 {len(chapters)} 个）"
         )
         return result_chapters
 
@@ -219,6 +209,408 @@ class TocParser:
 
         logger.info(f"目录解析完成，成功解析 {len(chapters)} 个章节")
         return chapters
+
+    async def _parse_toc_with_strategies(self, toc_url: str) -> List[ChapterInfo]:
+        """使用多种策略解析目录"""
+        strategies = [
+            ("标准解析", self._parse_standard),
+            ("智能选择器", self._parse_with_smart_selectors),
+            ("正则表达式", self._parse_with_regex),
+            ("JavaScript处理", self._parse_with_js_processing)
+        ]
+        
+        for strategy_name, strategy_func in strategies:
+            try:
+                logger.info(f"尝试策略: {strategy_name}")
+                chapters = await strategy_func(toc_url)
+                if chapters:
+                    logger.info(f"策略 {strategy_name} 成功，获取到 {len(chapters)} 个章节")
+                    return chapters
+                else:
+                    logger.warning(f"策略 {strategy_name} 未获取到章节")
+            except Exception as e:
+                logger.warning(f"策略 {strategy_name} 失败: {str(e)}")
+                continue
+        
+        return []
+
+    async def _parse_standard(self, toc_url: str) -> List[ChapterInfo]:
+        """标准解析方法"""
+        html = await self._fetch_html(toc_url)
+        if not html:
+            return []
+        
+        return self._parse_toc(html, toc_url)
+
+    async def _parse_with_smart_selectors(self, toc_url: str) -> List[ChapterInfo]:
+        """使用智能选择器解析"""
+        html = await self._fetch_html(toc_url)
+        if not html:
+            return []
+        
+        # 尝试多种常见的目录选择器
+        smart_selectors = [
+            self.toc_rule.get("list", ""),
+            self.toc_rule.get("item", ""),
+            ".catalog a", ".chapter-list a", ".list-chapter a",
+            ".book-chapter a", ".content a", "ul li a",
+            ".section-list a", ".chapter a", ".mulu a",
+            "dd a", "dt a", ".box a", ".list a"
+        ]
+        
+        soup = BeautifulSoup(html, "html.parser")
+        
+        for selector in smart_selectors:
+            if not selector.strip():
+                continue
+                
+            try:
+                elements = soup.select(selector)
+                if elements and len(elements) > 5:  # 至少要有5个章节才认为是有效的
+                    logger.info(f"智能选择器 '{selector}' 找到 {len(elements)} 个元素")
+                    chapters = self._extract_chapters_from_elements(elements, toc_url)
+                    if chapters:
+                        return chapters
+            except Exception as e:
+                logger.debug(f"选择器 '{selector}' 解析失败: {str(e)}")
+                continue
+        
+        return []
+
+    async def _parse_with_regex(self, toc_url: str) -> List[ChapterInfo]:
+        """使用正则表达式解析"""
+        html = await self._fetch_html(toc_url)
+        if not html:
+            return []
+        
+        # 常见的章节链接正则模式
+        patterns = [
+            r'<a[^>]*href="([^"]*)"[^>]*>([^<]*第\s*\d+\s*章[^<]*)</a>',
+            r'<a[^>]*href="([^"]*)"[^>]*>([^<]*章节[^<]*)</a>',
+            r'<a[^>]*href="([^"]*)"[^>]*>([^<]*\d+[^<]*)</a>',
+            r'href="([^"]*)"[^>]*>([^<]*第.*?章[^<]*)',
+        ]
+        
+        for pattern in patterns:
+            try:
+                matches = re.findall(pattern, html, re.IGNORECASE | re.DOTALL)
+                if matches and len(matches) > 5:
+                    logger.info(f"正则模式找到 {len(matches)} 个匹配")
+                    chapters = []
+                    for i, (href, title) in enumerate(matches):
+                        if href and title:
+                            full_url = urljoin(toc_url, href)
+                            chapter = ChapterInfo(
+                                title=title.strip(),
+                                url=full_url,
+                                order=i + 1
+                            )
+                            chapters.append(chapter)
+                    
+                    if chapters:
+                        return chapters
+            except Exception as e:
+                logger.debug(f"正则模式解析失败: {str(e)}")
+                continue
+        
+        return []
+
+    async def _parse_with_js_processing(self, toc_url: str) -> List[ChapterInfo]:
+        """处理包含JavaScript的目录页面"""
+        html = await self._fetch_html(toc_url)
+        if not html:
+            return []
+        
+        # 检查是否包含JavaScript处理逻辑
+        js_rule = self.toc_rule.get("list", "")
+        if "@js:" in js_rule:
+            try:
+                # 简单的JavaScript处理（主要是字符串替换）
+                js_code = js_rule.split("@js:")[1]
+                # 这里可以添加更复杂的JavaScript执行逻辑
+                # 目前只处理简单的字符串操作
+                if "replace" in js_code:
+                    # 执行简单的字符串替换
+                    html = self._execute_simple_js(html, js_code)
+                
+                # 重新解析处理后的HTML
+                soup = BeautifulSoup(html, "html.parser")
+                item_selector = self.toc_rule.get("item", "a")
+                elements = soup.select(item_selector)
+                
+                if elements:
+                    return self._extract_chapters_from_elements(elements, toc_url)
+                    
+            except Exception as e:
+                logger.warning(f"JavaScript处理失败: {str(e)}")
+        
+        return []
+
+    def _execute_simple_js(self, html: str, js_code: str) -> str:
+        """执行简单的JavaScript代码（主要是字符串操作）"""
+        try:
+            # 处理简单的replace操作
+            if "replace" in js_code:
+                import re
+                # 提取replace操作
+                replace_pattern = r'r\.replace\(([^,]+),\s*([^)]+)\)'
+                matches = re.findall(replace_pattern, js_code)
+                
+                for pattern_str, replacement_str in matches:
+                    # 清理引号
+                    pattern_str = pattern_str.strip('\'"')
+                    replacement_str = replacement_str.strip('\'"')
+                    
+                    # 执行替换
+                    html = re.sub(pattern_str, replacement_str, html, flags=re.DOTALL)
+            
+            return html
+        except Exception as e:
+            logger.warning(f"JavaScript执行失败: {str(e)}")
+            return html
+
+    async def _fallback_toc_parsing(self, detail_url: str, toc_url: str) -> List[ChapterInfo]:
+        """备用目录解析方法"""
+        logger.info("尝试备用目录解析方法")
+        
+        # 尝试在详情页直接查找目录链接
+        html = await self._fetch_html(detail_url)
+        if html:
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # 查找可能的目录区域
+            toc_areas = soup.find_all(['div', 'ul', 'ol'], 
+                                     class_=re.compile(r'(catalog|chapter|list|mulu|content)', re.I))
+            
+            for area in toc_areas:
+                links = area.find_all('a', href=True)
+                if len(links) > 5:  # 至少5个链接才认为是目录
+                    chapters = self._extract_chapters_from_elements(links, detail_url)
+                    if chapters:
+                        logger.info(f"备用方法在详情页找到 {len(chapters)} 个章节")
+                        return chapters
+        
+        return []
+
+    def _extract_chapters_from_elements(self, elements, base_url: str) -> List[ChapterInfo]:
+        """从HTML元素中提取章节信息"""
+        chapters = []
+        
+        for i, element in enumerate(elements):
+            try:
+                # 获取链接
+                if element.name == 'a':
+                    href = element.get('href', '')
+                    title = element.get_text(strip=True)
+                else:
+                    link = element.find('a')
+                    if not link:
+                        continue
+                    href = link.get('href', '')
+                    title = link.get_text(strip=True)
+                
+                if not href or not title:
+                    continue
+                
+                # 过滤无效链接
+                if href in ['#', 'javascript:void(0)', 'javascript:;']:
+                    continue
+                
+                # 构建完整URL
+                full_url = urljoin(base_url, href)
+                
+                # 验证URL有效性
+                if not self._is_valid_chapter_url(full_url):
+                    continue
+                
+                # 清理标题
+                clean_title = self._clean_title(title)
+                if not clean_title or len(clean_title) < 2:
+                    continue
+                
+                chapter = ChapterInfo(
+                    title=clean_title,
+                    url=full_url,
+                    order=i + 1
+                )
+                chapters.append(chapter)
+                
+            except Exception as e:
+                logger.debug(f"解析章节元素失败: {str(e)}")
+                continue
+        
+        return chapters
+
+    def _clean_title(self, title: str) -> str:
+        """清理章节标题"""
+        if not title:
+            return ""
+        
+        # 移除多余的空白字符
+        title = re.sub(r'\s+', ' ', title.strip())
+        
+        # 移除常见的无用文本
+        useless_patterns = [
+            r'\[.*?\]',  # 移除方括号内容
+            r'【.*?】',   # 移除中文方括号内容
+            r'\(.*?\)',  # 移除圆括号内容
+            r'（.*?）',   # 移除中文圆括号内容
+            r'更新时间.*',
+            r'字数.*',
+            r'VIP.*',
+        ]
+        
+        for pattern in useless_patterns:
+            title = re.sub(pattern, '', title, flags=re.IGNORECASE)
+        
+        return title.strip()
+
+    def _is_valid_chapter_url(self, url: str) -> bool:
+        """验证章节URL是否有效"""
+        try:
+            parsed = urlparse(url)
+            
+            # 必须是http或https协议
+            if parsed.scheme not in ['http', 'https']:
+                return False
+            
+            # 必须有域名
+            if not parsed.netloc:
+                return False
+            
+            # 路径不能为空或只是根路径
+            if not parsed.path or parsed.path == '/':
+                return False
+            
+            # 排除一些明显不是章节的URL
+            invalid_patterns = [
+                r'\.(?:jpg|jpeg|png|gif|css|js|ico)$',  # 图片、样式、脚本文件
+                r'/(?:index|home|main)(?:\.|$)',        # 主页
+                r'/(?:search|login|register)(?:\.|$)',  # 搜索、登录页面
+            ]
+            
+            for pattern in invalid_patterns:
+                if re.search(pattern, url, re.IGNORECASE):
+                    return False
+            
+            return True
+            
+        except Exception:
+            return False
+
+    def _clean_and_validate_chapters(self, chapters: List[ChapterInfo]) -> List[ChapterInfo]:
+        """清洗和验证章节列表"""
+        if not chapters:
+            return []
+        
+        # 去重（基于URL）
+        seen_urls = set()
+        unique_chapters = []
+        
+        for chapter in chapters:
+            if chapter.url not in seen_urls:
+                seen_urls.add(chapter.url)
+                unique_chapters.append(chapter)
+        
+        # 过滤掉标题过短或明显无效的章节
+        valid_chapters = []
+        for chapter in unique_chapters:
+            if (len(chapter.title) >= 2 and 
+                not re.match(r'^[\s\-_\.]*$', chapter.title) and
+                self._is_valid_chapter_url(chapter.url)):
+                valid_chapters.append(chapter)
+        
+        # 重新排序
+        for i, chapter in enumerate(valid_chapters):
+            chapter.order = i + 1
+        
+        logger.info(f"章节清洗完成：原始 {len(chapters)} 个，有效 {len(valid_chapters)} 个")
+        return valid_chapters
+
+    async def _handle_pagination(self, toc_url: str) -> List[ChapterInfo]:
+        """处理目录分页"""
+        additional_chapters = []
+        
+        try:
+            # 获取第一页HTML来分析分页信息
+            html = await self._fetch_html(toc_url)
+            if not html:
+                return []
+            
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # 获取总页数
+            total_pages = self._get_total_pages_enhanced(soup)
+            logger.info(f"检测到目录总页数: {total_pages}")
+            
+            if total_pages > 1:
+                # 并发获取其他页的目录
+                tasks = []
+                for page in range(2, min(total_pages + 1, 10)):  # 限制最多处理10页
+                    page_url = self._get_toc_page_url(toc_url, page)
+                    tasks.append(self._fetch_and_parse_page(page_url))
+                
+                if tasks:
+                    other_chapters = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    # 合并结果
+                    for result in other_chapters:
+                        if isinstance(result, Exception):
+                            logger.warning(f"获取分页失败: {str(result)}")
+                            continue
+                        if result:
+                            additional_chapters.extend(result)
+            
+        except Exception as e:
+            logger.warning(f"处理分页失败: {str(e)}")
+        
+        return additional_chapters
+
+    def _get_total_pages_enhanced(self, soup: BeautifulSoup) -> int:
+        """获取总页数（增强版）"""
+        try:
+            # 尝试多种分页选择器
+            page_selectors = [
+                self.toc_rule.get("nextPage", ""),
+                ".page a", ".pagination a", ".pager a",
+                "a[href*='page']", "a[href*='p=']",
+                "select option", ".page-select option"
+            ]
+            
+            max_page = 1
+            
+            for selector in page_selectors:
+                if not selector.strip():
+                    continue
+                
+                try:
+                    elements = soup.select(selector)
+                    for element in elements:
+                        # 从链接中提取页码
+                        href = element.get('href', '')
+                        text = element.get_text(strip=True)
+                        
+                        # 从URL中提取页码
+                        import re
+                        page_matches = re.findall(r'(?:page|p)=(\d+)', href)
+                        if page_matches:
+                            page_num = int(page_matches[-1])
+                            max_page = max(max_page, page_num)
+                        
+                        # 从文本中提取页码
+                        if text.isdigit():
+                            page_num = int(text)
+                            max_page = max(max_page, page_num)
+                        
+                except Exception as e:
+                    logger.debug(f"解析分页选择器失败 '{selector}': {str(e)}")
+                    continue
+            
+            return min(max_page, 50)  # 限制最大页数
+            
+        except Exception as e:
+            logger.warning(f"获取总页数失败: {str(e)}")
+            return 1
 
     def _parse_single_chapter(
         self, element: BeautifulSoup, toc_url: str, order: int
