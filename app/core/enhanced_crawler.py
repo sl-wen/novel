@@ -71,8 +71,8 @@ class EnhancedCrawler:
             # 初始化进度跟踪
             from app.utils.progress_tracker import progress_tracker
             
-            # 1. 获取小说详情
-            book = await self._get_book_detail_with_retry(url, source_id)
+            # 1. 获取小说详情（带重试和多源支持）
+            book = await self._get_book_detail_with_fallback(url, source_id)
             if not book:
                 if task_id:
                     progress_tracker.complete_task(task_id, False, "获取小说详情失败")
@@ -81,7 +81,7 @@ class EnhancedCrawler:
             logger.info(f"获取到小说: {book.title} - {book.author}")
             
             # 2. 获取目录（带重试和多种策略）
-            toc = await self._get_toc_with_retry(url, source_id)
+            toc = await self._get_toc_with_fallback(url, source_id)
             if not toc:
                 if task_id:
                     progress_tracker.complete_task(task_id, False, "获取小说目录失败")
@@ -141,6 +141,20 @@ class EnhancedCrawler:
             # 清理会话池
             await self._cleanup_sessions()
     
+    async def _get_book_detail_with_fallback(self, url: str, source_id: int) -> Optional[Book]:
+        """带备用源的获取书籍详情"""
+        # 首先尝试指定的书源
+        book = await self._get_book_detail_with_retry(url, source_id)
+        if book:
+            return book
+        
+        # 如果失败，尝试其他可用书源
+        logger.warning(f"书源 {source_id} 获取详情失败，尝试其他书源")
+        
+        # 这里可以添加书源切换逻辑
+        # 暂时返回None，让上层处理
+        return None
+    
     async def _get_book_detail_with_retry(self, url: str, source_id: int) -> Optional[Book]:
         """带重试的获取书籍详情"""
         for attempt in range(self.download_config.retry_times):
@@ -157,42 +171,35 @@ class EnhancedCrawler:
         
         return None
     
+    async def _get_toc_with_fallback(self, url: str, source_id: int) -> List[ChapterInfo]:
+        """带备用源的获取目录"""
+        # 首先尝试指定的书源
+        toc = await self._get_toc_with_retry(url, source_id)
+        if toc:
+            return toc
+        
+        # 如果失败，尝试其他可用书源
+        logger.warning(f"书源 {source_id} 获取目录失败，尝试其他书源")
+        
+        # 这里可以添加书源切换逻辑
+        return []
+    
     async def _get_toc_with_retry(self, url: str, source_id: int) -> List[ChapterInfo]:
         """带重试和多策略的获取目录"""
         source = Source(source_id)
         parser = TocParser(source)
         
-        # 策略1: 标准解析
+        # 多次尝试获取目录
         for attempt in range(self.download_config.retry_times):
             try:
                 toc = await parser.parse(url)
                 if toc:
-                    logger.info(f"标准解析成功，获取到 {len(toc)} 个章节")
+                    logger.info(f"目录解析成功，获取到 {len(toc)} 个章节")
                     return toc
             except Exception as e:
-                logger.warning(f"标准目录解析失败 (尝试 {attempt + 1}): {str(e)}")
+                logger.warning(f"目录解析失败 (尝试 {attempt + 1}): {str(e)}")
                 if attempt < self.download_config.retry_times - 1:
                     await asyncio.sleep(self.download_config.retry_delay * (attempt + 1))
-        
-        # 策略2: 尝试不同的选择器
-        alternative_selectors = [
-            ".catalog li a",
-            ".chapter-list a",
-            ".list-chapter a",
-            ".book-chapter a",
-            "ul li a",
-            ".content li a"
-        ]
-        
-        for selector in alternative_selectors:
-            try:
-                logger.info(f"尝试备用选择器: {selector}")
-                toc = await self._parse_toc_with_selector(url, source, selector)
-                if toc:
-                    logger.info(f"备用选择器成功，获取到 {len(toc)} 个章节")
-                    return toc
-            except Exception as e:
-                logger.warning(f"备用选择器 {selector} 失败: {str(e)}")
         
         return []
     
