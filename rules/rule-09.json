@@ -30,9 +30,9 @@
     "word_count": ""
   },
   "toc": {
-    "list": "div:nth-child(4) > ul > li > a",
-    "title": "",
-    "url": "",
+    "list": "dd > a",
+    "title": "text",
+    "url": "href",
     "has_pages": true,
     "next_page": "#indexselect > option"
   },

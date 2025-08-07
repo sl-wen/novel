@@ -30,9 +30,9 @@
     "word_count": ""
   },
   "toc": {
-    "list": "#list > ul > li > a",
-    "title": "",
-    "url": "",
+    "list": "dd > a",
+    "title": "text",
+    "url": "href",
     "has_pages": true,
     "next_page": "#pages > .gr"
   },
