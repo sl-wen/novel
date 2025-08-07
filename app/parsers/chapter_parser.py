@@ -58,7 +58,7 @@ class ChapterParser:
             )
 
         # 解析章节内容
-        content = self._parse_chapter_content(html)
+        content = self._parse_chapter_content(html, title)
 
         # 创建章节对象
         chapter = Chapter(url=url, title=title, content=content, order=order)
@@ -111,7 +111,7 @@ class ChapterParser:
         referer = self.source.rule.get("url", "")
         return await HttpClient.fetch_html(url, self.timeout, referer)
 
-    def _parse_chapter_content(self, html: str) -> str:
+    def _parse_chapter_content(self, html: str, title: str = "未知章节") -> str:
         """解析章节内容
 
         Args:
