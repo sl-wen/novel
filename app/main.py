@@ -37,6 +37,17 @@ app.add_middleware(
 app.include_router(novels.router, prefix="/api")
 
 
+@app.on_event("startup")
+async def on_startup():
+    """应用启动时触发书源验证"""
+    try:
+        from app.services.novel_service import NovelService
+        service = NovelService()
+        await service._validate_sources_async()
+    except Exception as e:
+        logger.warning(f"启动时验证书源失败: {str(e)}")
+
+
 # 全局异常处理
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
