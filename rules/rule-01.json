@@ -38,14 +38,19 @@
   },
   "chapter": {
     "title": ".bookname > h1",
-    "content": "#content",
+    "content": "#content,.content,.read-content,#chapter-content,.chapter-content,.book-content,#book-content,.novel-content,#novel-content,.text,#text,article,.article,.post-content,.entry-content",
     "ad_patterns": [
       "一秒记住【文学巴士&nbsp;】，精彩无弹窗免费阅读！",
       "(www.xbiquge.la 新笔趣阁)，高速全文字在线阅读！",
       "天才一秒记住本站地址：.+。手机版阅读网址：m.",
       "手机用户请浏览阅读，更优质的阅读体验。",
       "天才壹秒記住.+，為您提供精彩小說閱讀。",
-      "\\(本章完\\)"
+      "\\(本章完\\)",
+      "^首页.*书库.*排行.*$",
+      "^最新章节目录.*$",
+      "^作者：.*?更新时间：.*$",
+      "^如遇到内容无法显示或者显示不全.*$",
+      "^.*请更换谷歌浏览器.*$"
     ]
   }
 }

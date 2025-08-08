@@ -38,12 +38,17 @@
   },
   "chapter": {
     "title": "#mlfy_main_text > h3",
-    "content": "#mlfy_main_text > div.read-content > p",
+    "content": "#mlfy_main_text > div.read-content > p,.content,.read-content,#content,#chapter-content,.chapter-content,.book-content,#book-content,.novel-content,#novel-content,.text,#text,article,.article,.post-content,.entry-content",
     "ad_patterns": [
       "【悠久小説網ωωω.ＵＪХＳw.ｎｅｔ】，免费小说无弹窗免费阅读！",
-      "佰度搜索 【悠久小說網 ＷＷＷ.ＵＪХＳw．ＮＥＴ】 全集TXT电子书免费下载！",
+      "佰度搜索 【悠久小説網 ＷＷＷ.ＵＪХＳw．ＮＥＴ】 全集TXT电子书免费下载！",
       "《.*》悠久小说网全文字更新,牢记网址:www.ujxsw.org",
-      "1秒记住网："
+      "1秒记住网：",
+      "^首页.*书库.*排行.*$",
+      "^最新章节目录.*$",
+      "^作者：.*?更新时间：.*$",
+      "^如遇到内容无法显示或者显示不全.*$",
+      "^.*请更换谷歌浏览器.*$"
     ]
   }
 }

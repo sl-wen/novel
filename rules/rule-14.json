@@ -38,9 +38,14 @@
   },
   "chapter": {
     "title": ".active",
-    "content": "#booktxt",
+    "content": "#booktxt,.content,.read-content,#content,#chapter-content,.chapter-content,.book-content,#book-content,.novel-content,#novel-content,.text,#text,article,.article,.post-content,.entry-content",
     "ad_patterns": [
-      "\\(本章完\\)"
+      "\\(本章完\\)",
+      "^首页.*书库.*排行.*$",
+      "^最新章节目录.*$",
+      "^作者：.*?更新时间：.*$",
+      "^如遇到内容无法显示或者显示不全.*$",
+      "^.*请更换谷歌浏览器.*$"
     ]
   }
 }
