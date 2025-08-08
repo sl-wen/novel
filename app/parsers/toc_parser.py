@@ -416,6 +416,15 @@ class TocParser:
                 if href in ['#', 'javascript:void(0)', 'javascript:;']:
                     continue
                 
+                # 过滤目录类项与范围链接
+                if any(k in title for k in ['目录', '查看完整目录']):
+                    continue
+                import re as _re
+                if _re.search(r'第\s*\d+\s*[-—]+\s*\d+\s*章', title):
+                    continue
+                if _re.search(r'(?:/list/|chapternum)', href):
+                    continue
+                
                 # 构建完整URL
                 full_url = urljoin(base_url, href)
                 
