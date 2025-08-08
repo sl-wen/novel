@@ -344,11 +344,15 @@ class ChapterParser:
             r'^第[一二三四五六七八九十百千0-9]+章.*目录.*$',
             r'^如遇到内容无法显示或者显示不全.*$',
             r'^.*请更换谷歌浏览器.*$',
+            r'^上一章$|^下一章$|^返回目录$|^加入书签$'
         ]
         
         # 行级清理：逐行删除匹配的垃圾行
+        lines = content.split('\n')
         cleaned_lines = []
-        for line in content.split('\n'):
+        chapter_header_regex = re.compile(r'^第[一二三四五六七八九十百千0-9]+章')
+        chapter_header_count = 0
+        for line in lines:
             drop = False
             for pattern in useless_patterns:
                 try:
@@ -357,9 +361,16 @@ class ChapterParser:
                         break
                 except Exception:
                     continue
-            if not drop:
-                cleaned_lines.append(line)
+            if drop:
+                continue
+            if chapter_header_regex.search(line):
+                chapter_header_count += 1
+            cleaned_lines.append(line)
         content = '\n'.join([l for l in cleaned_lines if l.strip()])
+        
+        # 若检测到大量“第X章”标题，认为混入目录，进一步剔除这些行
+        if chapter_header_count >= 5:
+            content = '\n'.join([l for l in content.split('\n') if not chapter_header_regex.search(l)])
         
         # 合并连续空行
         content = re.sub(r'\n{3,}', '\n\n', content)
