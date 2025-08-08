@@ -33,6 +33,7 @@ class ProgressInfo:
     start_time: float = field(default_factory=time.time)
     end_time: Optional[float] = None
     error_message: str = ""
+    file_path: Optional[str] = None
     
     @property
     def elapsed_time(self) -> float:
@@ -79,7 +80,8 @@ class ProgressInfo:
             "elapsed_time": round(self.elapsed_time, 2),
             "estimated_remaining_time": round(self.estimated_remaining_time, 2) if self.estimated_remaining_time else None,
             "average_speed": round(self.average_speed, 4),
-            "error_message": self.error_message
+            "error_message": self.error_message,
+            "file_path": self.file_path,
         }
 
 
@@ -150,6 +152,15 @@ class ProgressTracker:
             if progress.total_chapters > 0:
                 progress.progress_percentage = (completed_chapters / progress.total_chapters) * 100
             
+            self._notify_callbacks(task_id)
+    
+    def set_file_path(self, task_id: str, file_path: str):
+        """设置任务生成的文件路径"""
+        with self._lock:
+            if task_id not in self._tasks:
+                logger.warning(f"任务不存在: {task_id}")
+                return
+            self._tasks[task_id].file_path = file_path
             self._notify_callbacks(task_id)
     
     def complete_task(self, task_id: str, success: bool = True, error_message: str = ""):

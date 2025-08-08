@@ -119,6 +119,10 @@ class EnhancedCrawler:
                 book, chapters, download_dir, format
             )
             
+            # 6.1 记录生成文件路径
+            if task_id:
+                progress_tracker.set_file_path(task_id, str(file_path))
+            
             # 7. 清理临时文件
             await self._cleanup_temp_files(download_dir)
             

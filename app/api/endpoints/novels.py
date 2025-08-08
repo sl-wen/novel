@@ -246,6 +246,93 @@ async def get_download_progress(
         )
 
 
+@router.post("/download/start")
+async def start_download(
+    url: str = Query(..., description="小说详情页URL"),
+    sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
+    format: str = Query(settings.DEFAULT_FORMAT, description="下载格式，支持txt、epub"),
+):
+    """启动异步下载任务，立即返回任务ID"""
+    try:
+        from app.utils.progress_tracker import progress_tracker
+        
+        # 创建任务
+        task_id = progress_tracker.create_task(total_chapters=0)
+        progress_tracker.start_task(task_id)
+        logger.info(f"启动下载任务: {task_id} ({url}, source={sourceId}, format={format})")
+        
+        async def run_download():
+            try:
+                file_path = await novel_service.download(url, sourceId, format, task_id=task_id)
+                if file_path:
+                    progress_tracker.set_file_path(task_id, file_path)
+                    progress_tracker.complete_task(task_id, True)
+                else:
+                    progress_tracker.complete_task(task_id, False, "文件生成失败")
+            except Exception as e:
+                logger.error(f"后台下载任务失败: {str(e)}")
+                progress_tracker.complete_task(task_id, False, str(e))
+        
+        # 后台执行
+        import asyncio
+        asyncio.create_task(run_download())
+        
+        return {"code": 202, "message": "accepted", "data": {"task_id": task_id}}
+    except Exception as e:
+        logger.error(f"启动下载任务失败: {str(e)}")
+        return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
+
+
+@router.get("/download/result")
+async def get_download_result(task_id: str = Query(..., description="下载任务ID")):
+    """获取已完成任务的文件（若未完成则返回状态）"""
+    try:
+        from app.utils.progress_tracker import progress_tracker
+        from fastapi.responses import StreamingResponse
+        import urllib.parse
+        from pathlib import Path
+        
+        progress = progress_tracker.get_progress(task_id)
+        if not progress:
+            return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
+        
+        # 未完成直接返回状态
+        if progress.status not in [progress.status.COMPLETED, progress.status.FAILED]:
+            return {"code": 200, "message": "running", "data": progress.to_dict()}
+        
+        if progress.status == progress.status.FAILED:
+            return JSONResponse(status_code=500, content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()})
+        
+        file_path = progress.file_path
+        if not file_path or not os.path.exists(file_path):
+            return JSONResponse(status_code=500, content={"code": 500, "message": "文件不存在或尚未生成", "data": progress.to_dict()})
+        
+        file_obj = Path(file_path)
+        filename = file_obj.name
+        encoded_filename = urllib.parse.quote(filename, safe="")
+        
+        def file_generator():
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(8192)
+                    if not chunk:
+                        break
+                    yield chunk
+        
+        return StreamingResponse(
+            file_generator(),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition",
+                "Content-Length": str(file_obj.stat().st_size),
+            },
+        )
+    except Exception as e:
+        logger.error(f"获取下载结果失败: {str(e)}")
+        return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
+
+
 @router.get("/sources")
 async def get_sources():
     """
