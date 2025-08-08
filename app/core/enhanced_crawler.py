@@ -32,7 +32,7 @@ class DownloadConfig:
     retry_times: int = 5  # 增加重试次数
     retry_delay: float = 2.0
     batch_delay: float = 1.5  # 增加批次间延迟
-    timeout: int = 60  # 增加超时时间
+    timeout: int = 120  # 增加超时时间
     enable_recovery: bool = True  # 启用恢复机制
     progress_callback: Optional[callable] = None
 

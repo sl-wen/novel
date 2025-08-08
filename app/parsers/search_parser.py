@@ -199,7 +199,7 @@ class SearchParser:
             timeout = aiohttp.ClientTimeout(
                 total=self.timeout,
                 connect=10,
-                sock_read=30
+                sock_read=120
             )
             
             async with aiohttp.ClientSession(
