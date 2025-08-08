@@ -35,7 +35,7 @@ services:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./downloads:/var/www/novel/downloads:ro
     depends_on:
-      - novel
+      - novel-api
     networks:
       - novel-network
 

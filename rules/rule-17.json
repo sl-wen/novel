@@ -38,10 +38,15 @@
   },
   "chapter": {
     "title": ".reader-main > h1@js:r=r.replace(/（\\d+ \\/ \\d+）/, '');",
-    "content": "#article",
+    "content": "#article,.content,.read-content,#content,#chapter-content,.chapter-content,.book-content,#book-content,.novel-content,#novel-content,.text,#text,article,.article,.post-content,.entry-content",
     "ad_patterns": [
       "\\(本章完\\)",
-      "最近转码严重，让我们更有动力，更新更快，麻烦你动动小手退出阅读模式。谢谢"
+      "最近转码严重，让我们更有动力，更新更快，麻烦你动动小手退出阅读模式。谢谢",
+      "^首页.*书库.*排行.*$",
+      "^最新章节目录.*$",
+      "^作者：.*?更新时间：.*$",
+      "^如遇到内容无法显示或者显示不全.*$",
+      "^.*请更换谷歌浏览器.*$"
     ]
   }
 }

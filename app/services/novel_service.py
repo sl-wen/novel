@@ -31,8 +31,13 @@ class NovelService:
         self._load_sources()
         self.monitor = DownloadMonitor()
         self.chapter_validator = ChapterValidator()
-        # 验证书源可用性
-        asyncio.create_task(self._validate_sources_async())
+        # 验证书源可用性（仅在有事件循环时启动）
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._validate_sources_async())
+        except RuntimeError:
+            # 无运行中的事件循环，稍后由应用启动事件触发
+            pass
 
     async def _validate_sources_async(self):
         """异步验证书源可用性"""
