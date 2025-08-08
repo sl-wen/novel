@@ -336,13 +336,33 @@ class ChapterParser:
             r'\(本章完\)',
             r'章节错误,点此举报.*?',
             r'推荐阅读：.*?',
+            # 新增：站点导航/目录列表/SEO提示等
+            r'^\s*零点小说.*$',
+            r'^\s*首页\s*书库\s*排行.*$',
+            r'^\s*最新章节目录.*$',
+            r'^\s*作者：.*?更新时间：.*$',
+            r'^第[一二三四五六七八九十百千0-9]+章.*目录.*$',
+            r'^如遇到内容无法显示或者显示不全.*$',
+            r'^.*请更换谷歌浏览器.*$',
         ]
         
-        for pattern in useless_patterns:
-            try:
-                content = re.sub(pattern, '', content, flags=re.IGNORECASE | re.MULTILINE)
-            except Exception as e:
-                logger.debug(f"清理模式失败: {pattern}, 错误: {str(e)}")
+        # 行级清理：逐行删除匹配的垃圾行
+        cleaned_lines = []
+        for line in content.split('\n'):
+            drop = False
+            for pattern in useless_patterns:
+                try:
+                    if re.search(pattern, line, flags=re.IGNORECASE):
+                        drop = True
+                        break
+                except Exception:
+                    continue
+            if not drop:
+                cleaned_lines.append(line)
+        content = '\n'.join([l for l in cleaned_lines if l.strip()])
+        
+        # 合并连续空行
+        content = re.sub(r'\n{3,}', '\n\n', content)
         
         return content
 

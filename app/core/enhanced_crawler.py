@@ -349,7 +349,7 @@ class EnhancedCrawler:
                 self.monitor.chapter_started(chapter_info.title, chapter_info.url)
                 
                 # 下载章节
-                chapter = await parser.parse(chapter_info.url)
+                chapter = await parser.parse(chapter_info.url, chapter_info.title, chapter_info.order)
                 
                 if not chapter or not chapter.content:
                     raise ValueError("章节内容为空")
