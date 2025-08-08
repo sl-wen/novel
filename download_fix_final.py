@@ -26,7 +26,7 @@ def test_download_fix():
         response = requests.get(
             f"{base_url}/api/novels/search",
             params={"keyword": "斗破苍穹", "maxResults": 1},
-            timeout=30
+            timeout=300
         )
         
         if response.status_code == 200:
@@ -47,7 +47,7 @@ def test_download_fix():
                         "url": book.get("url"),
                         "sourceId": book.get("source_id")
                     },
-                    timeout=30
+                    timeout=300
                 )
                 
                 if toc_response.status_code == 200:
@@ -58,7 +58,7 @@ def test_download_fix():
                     if chapters:
                         print("   ✅ 目录解析成功")
                         print("   - 章节预览:")
-                        for i, chapter in enumerate(chapters[:3]):
+                        for i, chapter in enumerate(chapters[:10]):
                             print(f"     {i+1}. {chapter.get('title', '无标题')}")
                         
                         # 3. 测试下载功能

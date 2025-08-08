@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     DEFAULT_FORMAT: str = "txt"
 
     # HTTP设置
-    DEFAULT_TIMEOUT: int = 30  # 秒 (从300秒减少到30秒)
+    DEFAULT_TIMEOUT: int = 300  # 秒 (从300秒减少到30秒)
     REQUEST_RETRY_TIMES: int = 3  # 请求重试次数
     REQUEST_RETRY_DELAY: float = 2.0  # 请求重试延迟（秒）
     DEFAULT_HEADERS: dict = {

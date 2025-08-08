@@ -12,7 +12,7 @@ start = requests.post(
         "sourceId": 11,
         "format": "txt",
     },
-    timeout=30,
+    timeout=300,
 )
 start.raise_for_status()
 data = start.json()

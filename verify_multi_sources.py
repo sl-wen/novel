@@ -6,7 +6,7 @@ from collections import defaultdict
 
 BASE = "http://0.0.0.0:8000"
 KEYWORD = "斗破苍穹"
-TEST_SOURCES = [2, 9, 10]  # 可调整
+TEST_SOURCES = [1,2,3,4,5,6,7,8,9,10]  # 可调整
 TIMEOUT = 120
 
 print("Searching...", KEYWORD)
