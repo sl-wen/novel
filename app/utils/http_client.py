@@ -87,7 +87,7 @@ class HttpClient:
                 client_timeout = aiohttp.ClientTimeout(
                     total=timeout,
                     connect=10,
-                    sock_read=30
+                    sock_read=120
                 )
                 
                 async with aiohttp.ClientSession(
@@ -185,7 +185,7 @@ class HttpClient:
                 client_timeout = aiohttp.ClientTimeout(
                     total=timeout,
                     connect=10,
-                    sock_read=30
+                    sock_read=120
                 )
                 
                 async with aiohttp.ClientSession(

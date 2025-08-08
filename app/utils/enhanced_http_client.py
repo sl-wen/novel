@@ -130,7 +130,7 @@ class EnhancedHttpClient:
                 client_timeout = ClientTimeout(
                     total=timeout,
                     connect=10,
-                    sock_read=30
+                    sock_read=120
                 )
                 
                 # 准备请求头
