@@ -39,7 +39,6 @@ class Settings(BaseSettings):
     DOWNLOAD_RETRY_TIMES: int = 2  # 下载重试次数
     DOWNLOAD_RETRY_DELAY: float = 2.0  # 下载重试延迟（秒）
     DOWNLOAD_BATCH_DELAY: float = 1.0  # 批次间延迟（秒）
-    MIN_CHAPTER_LENGTH: int = 50  # 最小章节长度（字符数）
     MIN_CONTENT_LENGTH: int = 100  # 最小内容长度（字符数）
 
     # 搜索设置
