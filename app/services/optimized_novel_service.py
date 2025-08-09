@@ -326,13 +326,14 @@ class OptimizedNovelService:
             relevance_score = self._calculate_relevance_score_fast(
                 result, keyword_lower
             )
-            result.relevance_score = relevance_score
+            # 统一使用 SearchResult.score 字段存储相关性得分
+            result.score = relevance_score
 
             if relevance_score > 0.1:  # 最低相关性阈值
                 valid_results.append(result)
 
         # 按相关性得分排序
-        valid_results.sort(key=lambda x: x.relevance_score, reverse=True)
+        valid_results.sort(key=lambda x: (x.score or 0), reverse=True)
 
         # 返回指定数量的结果
         return valid_results[:max_results]
