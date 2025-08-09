@@ -238,20 +238,26 @@ class CacheManager:
         key = self._generate_cache_key("search", keyword, *sorted(source_ids))
         return await self.set(key, results, ttl=self.search_cache_ttl)
     
-    async def get_search_results(self, keyword: str, source_ids: List[int]) -> Optional[List[Dict]]:
-        """获取缓存的搜索结果"""
-        key = self._generate_cache_key("search", keyword, *sorted(source_ids))
-        return await self.get(key, ttl=self.search_cache_ttl)
+    async def get_search_results(self, cache_key: str) -> Optional[List[Any]]:
+        """获取缓存的搜索结果（通过缓存键）"""
+        return await self.get(cache_key, ttl=self.search_cache_ttl)
+    
+    async def set_search_results(self, cache_key: str, results: List[Any]) -> bool:
+        """设置缓存的搜索结果"""
+        return await self.set(cache_key, results, ttl=self.search_cache_ttl)
     
     async def cache_toc(self, url: str, source_id: int, toc: List[Dict]) -> bool:
         """缓存目录信息"""
         key = self._generate_cache_key("toc", url, source_id)
         return await self.set(key, toc, ttl=self.toc_cache_ttl)
     
-    async def get_toc(self, url: str, source_id: int) -> Optional[List[Dict]]:
-        """获取缓存的目录信息"""
-        key = self._generate_cache_key("toc", url, source_id)
-        return await self.get(key, ttl=self.toc_cache_ttl)
+    async def get_toc(self, cache_key: str) -> Optional[List[Any]]:
+        """获取缓存的目录信息（通过缓存键）"""
+        return await self.get(cache_key, ttl=self.toc_cache_ttl)
+    
+    async def set_toc(self, cache_key: str, toc: List[Any]) -> bool:
+        """设置缓存的目录信息"""
+        return await self.set(cache_key, toc, ttl=self.toc_cache_ttl)
     
     async def cache_chapter(self, chapter_url: str, source_id: int, 
                           chapter_data: Dict) -> bool:
@@ -273,6 +279,14 @@ class CacheManager:
         """获取缓存的书籍信息"""
         key = self._generate_cache_key("book", url, source_id)
         return await self.get(key, ttl=self.toc_cache_ttl)
+    
+    async def get_book_detail(self, cache_key: str) -> Optional[Any]:
+        """获取缓存的书籍详情（通过缓存键）"""
+        return await self.get(cache_key, ttl=self.toc_cache_ttl)
+    
+    async def set_book_detail(self, cache_key: str, book: Any) -> bool:
+        """设置缓存的书籍详情"""
+        return await self.set(cache_key, book, ttl=self.toc_cache_ttl)
     
     def get_cache_stats(self) -> Dict[str, Any]:
         """获取缓存统计信息"""

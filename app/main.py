@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.endpoints import novels
+from app.api.endpoints import optimized_novels
 from app.core.config import settings
 
 # 配置日志
@@ -35,6 +36,7 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(novels.router, prefix="/api")
+app.include_router(optimized_novels.router, prefix="/api")
 
 
 @app.on_event("startup")
