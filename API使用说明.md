@@ -7,12 +7,12 @@
 ## 功能特性
 
 - ✅ 多书源支持（20个预配置书源）
-- ✅ 小说搜索功能
-- ✅ 书籍详情获取
-- ✅ 章节目录获取
-- ✅ 小说下载（支持TXT、EPUB）
-- ✅ 异步并发处理
-- ✅ 错误重试机制
+- ✅ 小说搜索功能（每个书源最多返回2条结果，降低重复与噪声）
+- ✅ 书籍详情获取 / 章节目录获取
+- ✅ 小说下载（支持TXT、EPUB），支持异步任务与进度查询
+- ✅ 异步并发处理、连接池、UA 轮换
+- ✅ 错误重试、指数退避、结果缓存
+- ✅ 优化版 API：性能监控、健康检查、缓存管理
 - ✅ 完善的日志记录
 
 ## 安装和启动
@@ -78,12 +78,15 @@ python run.py
 }
 ```
 
-### 3. 搜索小说
+### 3. 搜索小说（标准版）
 
 **接口地址：** `GET /api/novels/search`
 
 **请求参数：**
 - `keyword` (必需): 搜索关键词（书名或作者名）
+- `maxResults` (可选): 最大返回结果数，默认30，范围1-100
+
+说明：每个书源最多返回2条结果（内置策略），实际返回不超过 `maxResults`。
 
 **响应示例：**
 ```json
@@ -163,7 +166,7 @@ python run.py
 }
 ```
 
-### 6. 下载小说
+### 6. 下载小说（标准版）
 
 **接口地址：** `GET /api/novels/download`
 
@@ -173,6 +176,73 @@ python run.py
 - `format` (可选): 下载格式，支持txt、epub，默认为txt
 
 **响应：** 直接返回文件流进行下载
+
+#### 异步下载任务（推荐用于长文本）
+- 启动任务：`POST /api/novels/download/start`（返回 `task_id`）
+- 查询进度：`GET /api/novels/download/progress?task_id=...`
+- 拉取结果：`GET /api/novels/download/result?task_id=...`（完成后返回文件流）
+
+进度数据包含任务状态、完成章节数、错误信息、生成文件路径等。
+
+---
+
+## 优化版 API（/api/optimized）
+
+引入缓存、并发优化、性能监控与健康检查。
+
+### 1. 搜索小说（优化版）
+**接口地址：** `GET /api/optimized/search`
+
+**请求参数：**
+- `keyword` (必需)
+- `maxResults` (可选，默认30，范围1-100)
+
+说明：每个书源最多返回2条结果；响应包含 `meta` 字段（耗时、是否命中缓存等）。
+
+**响应示例：**
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": [ /* 同标准版 */ ],
+  "meta": { "duration_ms": 123.4, "total_results": 10, "cached": false }
+}
+```
+
+### 2. 获取书籍详情（优化版）
+`GET /api/optimized/detail?url=...&sourceId=1`
+
+返回结构同标准版，额外包含 `meta.duration_ms`、`meta.source_id`。
+
+### 3. 获取章节目录（优化版）
+`GET /api/optimized/toc?url=...&sourceId=1`
+
+返回结构同标准版，额外包含 `meta.duration_ms`、`meta.total_chapters`。
+
+### 4. 下载小说（优化版）
+`GET /api/optimized/download?url=...&sourceId=1&format=txt`
+
+直接返回文件流，响应头包含：`X-Download-Duration-MS`、`X-File-Size`、`X-Task-ID`。
+
+### 5. 获取书源列表（优化版）
+`GET /api/optimized/sources`
+
+返回结构同标准版，额外包含 `meta`（耗时、总书源数）。
+
+### 6. 性能统计
+`GET /api/optimized/performance`
+
+返回性能监控摘要、缓存统计、HTTP 客户端统计、最近慢操作列表。
+
+### 7. 清理缓存
+`POST /api/optimized/cache/clear`
+
+返回清理条目数与时间戳。
+
+### 8. 健康检查
+`GET /api/optimized/health`
+
+返回 `status`（healthy/warning/unhealthy）、`health_score`、关键指标汇总。
 
 ## 错误响应格式
 
@@ -195,6 +265,8 @@ python run.py
 - `DEFAULT_TIMEOUT`: 默认请求超时时间
 - `REQUEST_RETRY_TIMES`: 请求重试次数
 - `MAX_CONCURRENT_REQUESTS`: 最大并发请求数
+
+说明：系统内置“每书源最多2条搜索结果”的限制以提升相关性与稳定性，该策略优先于 `MAX_SEARCH_RESULTS`。
 
 ## 书源规则
 

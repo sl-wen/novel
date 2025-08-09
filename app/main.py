@@ -5,8 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.endpoints import novels
-from app.api.endpoints import optimized_novels
+from app.api.endpoints import novels, optimized_novels
 from app.core.config import settings
 
 # 配置日志
@@ -44,6 +43,7 @@ async def on_startup():
     """应用启动时触发书源验证"""
     try:
         from app.services.novel_service import NovelService
+
         service = NovelService()
         await service._validate_sources_async()
     except Exception as e:
@@ -78,6 +78,17 @@ async def root():
         "message": "小说聚合搜索与下载API服务正在运行",
         "data": {"version": settings.VERSION, "docs": "/docs"},
     }
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """应用关闭时优雅清理 HTTP 资源"""
+    try:
+        from app.utils.enhanced_http_client import http_client
+
+        await http_client.shutdown()
+    except Exception as e:
+        logger.warning(f"关闭HTTP客户端时发生异常: {e}")
 
 
 if __name__ == "__main__":
