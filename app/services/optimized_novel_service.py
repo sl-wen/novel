@@ -417,12 +417,14 @@ class OptimizedNovelService:
 
         try:
             # 使用优化的增强爬虫
-            from app.core.config import settings
             from app.core.enhanced_crawler import EnhancedCrawler
 
             # 创建优化配置
             optimized_config = self._create_optimized_download_config()
-            crawler = EnhancedCrawler(optimized_config)
+            # 使用全局 settings 作为通用配置（包含 DOWNLOAD_PATH 等路径）
+            crawler = EnhancedCrawler(settings)
+            # 覆盖下载相关配置到 crawler
+            crawler.download_config = optimized_config
 
             return await crawler.download(url, source_id, format, task_id)
 
