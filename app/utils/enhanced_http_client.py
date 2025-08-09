@@ -140,10 +140,15 @@ class EnhancedHttpClient:
                     if session_key in self.session_last_used:
                         del self.session_last_used[session_key]
 
-            # 创建新会话
+            # 创建新会话（提高并发上限，参照下载并发配置）
+            overall_limit = max(
+                getattr(settings, "DOWNLOAD_CONCURRENT_LIMIT", 10) * 4, 20
+            )
+            per_host_limit = max(getattr(settings, "DOWNLOAD_CONCURRENT_LIMIT", 10), 10)
+
             connector = TCPConnector(
-                limit=settings.MAX_CONCURRENT_REQUESTS,
-                limit_per_host=10,
+                limit=overall_limit,
+                limit_per_host=per_host_limit,
                 ttl_dns_cache=300,
                 use_dns_cache=True,
                 ssl=False,  # 跳过SSL验证以提高速度

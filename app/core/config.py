@@ -31,11 +31,11 @@ class Settings(BaseSettings):
     DEFAULT_SOURCE_ID: int = 2  # 改为书源2，因为书源1无法访问
 
     # 并发设置
-    MAX_THREADS: int = os.cpu_count() * 2 if os.cpu_count() else 8
-    MAX_CONCURRENT_REQUESTS: int = 5  # 最大并发请求数
+    MAX_THREADS: int = 50
+    MAX_CONCURRENT_REQUESTS: int = 50  # 最大并发请求数
 
     # 下载设置
-    DOWNLOAD_CONCURRENT_LIMIT: int = 5  # 下载并发限制
+    DOWNLOAD_CONCURRENT_LIMIT: int = 50  # 下载并发限制
     DOWNLOAD_RETRY_TIMES: int = 2  # 下载重试次数
     DOWNLOAD_RETRY_DELAY: float = 2.0  # 下载重试延迟（秒）
     DOWNLOAD_BATCH_DELAY: float = 1.0  # 批次间延迟（秒）

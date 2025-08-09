@@ -437,11 +437,14 @@ class OptimizedNovelService:
         from app.core.enhanced_crawler import DownloadConfig
 
         config = DownloadConfig()
-        config.max_concurrent = self.max_concurrent_chapters
-        config.retry_times = 3
-        config.retry_delay = 1.0
-        config.batch_delay = 0.5  # 减少批次延迟
-        config.timeout = 60  # 减少超时时间
+        # 提升并发与整体吞吐
+        config.max_concurrent = max(
+            self.max_concurrent_chapters, settings.DOWNLOAD_CONCURRENT_LIMIT
+        )
+        config.retry_times = max(settings.DOWNLOAD_RETRY_TIMES, 3)
+        config.retry_delay = min(settings.DOWNLOAD_RETRY_DELAY, 1.0)
+        config.batch_delay = 0.2  # 减少批次/间隔延迟
+        config.timeout = 90  # 合理的章节超时
         config.enable_recovery = True
 
         return config

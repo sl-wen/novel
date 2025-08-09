@@ -1,5 +1,5 @@
-import re
 import logging
+import re
 from typing import List, Tuple
 
 from app.core.config import settings
@@ -35,7 +35,7 @@ class ContentValidator:
             r"手机用户请浏览阅读.+",
             r"天才壹秒記住.+為您提供精彩小說閱讀.+",
         ]
-        
+
         # 无效内容模式
         self.invalid_patterns = [
             r"获取章节内容失败",
@@ -45,14 +45,16 @@ class ContentValidator:
             r"404",
             r"页面不存在",
         ]
-        
+
         # 最小有效内容长度
         self.min_valid_length = settings.MIN_CONTENT_LENGTH
-        
+
         # 最小章节长度
         self.min_chapter_length = settings.MIN_CHAPTER_LENGTH
 
-    def validate_chapter_content(self, content: str, title: str = "") -> Tuple[bool, str]:
+    def validate_chapter_content(
+        self, content: str, title: str = ""
+    ) -> Tuple[bool, str]:
         """验证章节内容质量
 
         Args:
@@ -120,17 +122,17 @@ class ContentValidator:
             return False
 
         # 检查段落数量
-        paragraphs = [p.strip() for p in content.split('\n') if p.strip()]
+        paragraphs = [p.strip() for p in content.split("\n") if p.strip()]
         if len(paragraphs) < 2:
             return False
 
         # 检查是否有足够的中文字符
-        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', content))
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", content))
         if chinese_chars < 50:
             return False
 
         # 检查是否有合理的标点符号
-        punctuation_count = len(re.findall(r'[，。！？；：""''（）]', content))
+        punctuation_count = len(re.findall(r'[，。！？；：""' "（）]", content))
         if punctuation_count < 5:
             return False
 
@@ -153,13 +155,13 @@ class ContentValidator:
             content = re.sub(pattern, "", content, flags=re.IGNORECASE)
 
         # 移除多余的空行
-        content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)
+        content = re.sub(r"\n\s*\n\s*\n+", "\n\n", content)
 
         # 移除行首行尾空格
-        lines = [line.strip() for line in content.split('\n') if line.strip()]
+        lines = [line.strip() for line in content.split("\n") if line.strip()]
 
         # 重新组合内容
-        return '\n'.join(lines)
+        return "\n".join(lines)
 
     def extract_main_content(self, content: str) -> str:
         """提取主要内容
@@ -174,10 +176,10 @@ class ContentValidator:
             return ""
 
         # 移除HTML标签
-        content = re.sub(r'<[^>]+>', '', content)
+        content = re.sub(r"<[^>]+>", "", content)
 
         # 移除多余的空白字符
-        content = re.sub(r'\s+', ' ', content)
+        content = re.sub(r"\s+", " ", content)
 
         # 移除广告内容
         content = self.clean_content(content)
@@ -204,9 +206,9 @@ class ContentValidator:
 
         # 基本统计
         length = len(content)
-        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', content))
-        paragraphs = len([p for p in content.split('\n') if p.strip()])
-        punctuation_count = len(re.findall(r'[，。！？；：""''（）]', content))
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", content))
+        paragraphs = len([p for p in content.split("\n") if p.strip()])
+        punctuation_count = len(re.findall(r'[，。！？；：""' "（）]", content))
         ad_ratio = self._calculate_ad_ratio(content)
 
         return {
@@ -231,14 +233,14 @@ class ContentValidator:
             return False
 
         stats = self.get_content_stats(content)
-        
+
         # 高质量内容的标准
         return (
-            stats["length"] >= self.min_valid_length and
-            stats["chinese_chars"] >= 100 and
-            stats["paragraphs"] >= 3 and
-            stats["ad_ratio"] < 0.1 and  # 广告内容少于10%
-            stats["punctuation_count"] >= 10
+            stats["length"] >= self.min_valid_length
+            and stats["chinese_chars"] >= 100
+            and stats["paragraphs"] >= 3
+            and stats["ad_ratio"] < 0.1  # 广告内容少于10%
+            and stats["punctuation_count"] >= 10
         )
 
 
@@ -249,7 +251,9 @@ class ChapterValidator:
         """初始化章节验证器"""
         self.content_validator = ContentValidator()
 
-    def validate_chapter(self, chapter_title: str, chapter_content: str) -> Tuple[bool, str]:
+    def validate_chapter(
+        self, chapter_title: str, chapter_content: str
+    ) -> Tuple[bool, str]:
         """验证章节
 
         Args:
@@ -264,7 +268,9 @@ class ChapterValidator:
             return False, "章节标题无效"
 
         # 验证内容
-        return self.content_validator.validate_chapter_content(chapter_content, chapter_title)
+        return self.content_validator.validate_chapter_content(
+            chapter_content, chapter_title
+        )
 
     def get_chapter_quality_score(self, chapter_content: str) -> float:
         """获取章节质量评分
@@ -279,7 +285,7 @@ class ChapterValidator:
             return 0.0
 
         stats = self.content_validator.get_content_stats(chapter_content)
-        
+
         # 计算质量评分
         length_score = min(stats["length"] / 1000, 1.0)  # 长度评分
         chinese_score = min(stats["chinese_chars"] / 500, 1.0)  # 中文字符评分
@@ -289,11 +295,15 @@ class ChapterValidator:
 
         # 综合评分
         total_score = (
-            length_score * 0.2 +
-            chinese_score * 0.3 +
-            paragraph_score * 0.2 +
-            ad_score * 0.2 +
-            punctuation_score * 0.1
+            length_score * 0.2
+            + chinese_score * 0.3
+            + paragraph_score * 0.2
+            + ad_score * 0.2
+            + punctuation_score * 0.1
         )
 
         return total_score
+
+    def clean_content(self, content: str) -> str:
+        """清理章节内容（委托给 ContentValidator）"""
+        return self.content_validator.clean_content(content)
