@@ -34,6 +34,9 @@ class ProgressInfo:
     end_time: Optional[float] = None
     error_message: str = ""
     file_path: Optional[str] = None
+    last_heartbeat: float = field(default_factory=time.time)
+    timeout_warnings: int = 0
+    polling_interval: float = 1.0
     
     @property
     def elapsed_time(self) -> float:
@@ -92,6 +95,8 @@ class ProgressTracker:
         self._tasks: Dict[str, ProgressInfo] = {}
         self._lock = Lock()
         self._callbacks: Dict[str, List[Callable[[ProgressInfo], None]]] = {}
+        self._timeout_monitor_task: Optional[asyncio.Task] = None
+        self._start_timeout_monitor()
     
     def create_task(self, total_chapters: int = 0, task_id: Optional[str] = None) -> str:
         """
@@ -281,6 +286,66 @@ class ProgressTracker:
             
             if tasks_to_remove:
                 logger.info(f"清理了 {len(tasks_to_remove)} 个旧任务")
+    
+    def _start_timeout_monitor(self):
+        """启动超时监控"""
+        try:
+            loop = asyncio.get_running_loop()
+            self._timeout_monitor_task = loop.create_task(self._timeout_monitor_loop())
+        except RuntimeError:
+            # 没有运行的事件循环，稍后启动
+            pass
+    
+    async def _timeout_monitor_loop(self):
+        """超时监控循环"""
+        while True:
+            try:
+                await asyncio.sleep(30)  # 每30秒检查一次
+                await self._check_timeouts()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"超时监控出错: {str(e)}")
+    
+    async def _check_timeouts(self):
+        """检查超时任务"""
+        current_time = time.time()
+        timeout_threshold = 300  # 5分钟无心跳视为超时
+        
+        with self._lock:
+            for task_id, progress in self._tasks.items():
+                if progress.status == TaskStatus.RUNNING:
+                    # 检查心跳超时
+                    if current_time - progress.last_heartbeat > timeout_threshold:
+                        progress.timeout_warnings += 1
+                        logger.warning(
+                            f"任务 {task_id} 可能超时 (无心跳 {current_time - progress.last_heartbeat:.1f}s)，"
+                            f"警告次数: {progress.timeout_warnings}"
+                        )
+                        
+                        # 如果超时警告过多，标记为失败
+                        if progress.timeout_warnings >= 3:
+                            progress.status = TaskStatus.FAILED
+                            progress.error_message = "任务超时：长时间无响应"
+                            progress.end_time = current_time
+                            logger.error(f"任务 {task_id} 因超时被标记为失败")
+                            self._notify_callbacks(task_id)
+    
+    def heartbeat(self, task_id: str):
+        """更新任务心跳"""
+        with self._lock:
+            if task_id in self._tasks:
+                self._tasks[task_id].last_heartbeat = time.time()
+                # 重置超时警告计数
+                if self._tasks[task_id].timeout_warnings > 0:
+                    self._tasks[task_id].timeout_warnings = 0
+                    logger.debug(f"任务 {task_id} 心跳恢复，重置超时警告")
+    
+    def update_polling_interval(self, task_id: str, interval: float):
+        """更新轮询间隔"""
+        with self._lock:
+            if task_id in self._tasks:
+                self._tasks[task_id].polling_interval = interval
 
 
 # 全局进度跟踪器实例

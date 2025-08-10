@@ -21,6 +21,8 @@ from app.parsers.toc_parser import TocParser
 from app.utils.content_validator import ChapterValidator
 from app.utils.download_monitor import DownloadMonitor
 from app.utils.file import FileUtils
+from app.utils.timeout_manager import timeout_manager, TimeoutConfig
+from app.utils.enhanced_polling_strategy import polling_manager, PollingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,24 @@ class EnhancedCrawler:
         self.validator = ChapterValidator()
         self.session_pool = {}  # 会话池
         self.failed_chapters = []  # 失败章节记录
+        
+        # 初始化超时管理器配置
+        self.timeout_config = TimeoutConfig(
+            base_timeout=getattr(self.config, 'POLLING_BASE_TIMEOUT', 30.0),
+            max_timeout=getattr(self.config, 'POLLING_MAX_TIMEOUT', 300.0),
+            min_timeout=getattr(self.config, 'POLLING_MIN_TIMEOUT', 10.0),
+            heartbeat_interval=getattr(self.config, 'POLLING_HEARTBEAT_INTERVAL', 5.0),
+            circuit_failure_threshold=getattr(self.config, 'CIRCUIT_BREAKER_FAILURE_THRESHOLD', 5),
+            circuit_recovery_timeout=getattr(self.config, 'CIRCUIT_BREAKER_RECOVERY_TIMEOUT', 60.0),
+        )
+        
+        # 初始化轮询配置
+        self.polling_config = PollingConfig(
+            base_interval=2.0,  # 轮询间隔
+            max_interval=30.0,
+            min_interval=0.5,
+            max_attempts=getattr(self.config, 'POLLING_MAX_ATTEMPTS', 200),
+        )
 
     async def download(
         self,
@@ -75,8 +95,22 @@ class EnhancedCrawler:
         start_time = time.time()
 
         try:
-            # 初始化进度跟踪
+            # 初始化进度跟踪和超时监控
             from app.utils.progress_tracker import progress_tracker
+            from app.utils.timeout_monitor import timeout_monitor
+
+            # 注册超时监控
+            if task_id:
+                await timeout_monitor.register_task(
+                    task_id,
+                    f"download_novel_{source_id}",
+                    expected_duration=600.0,  # 预期10分钟完成
+                    custom_thresholds={
+                        "warning": 300.0,   # 5分钟警告
+                        "error": 900.0,     # 15分钟错误
+                        "critical": 1800.0, # 30分钟严重
+                    }
+                )
 
             # 1. 获取小说详情（带重试和多源支持）
             book = await self._get_book_detail_with_fallback(url, source_id)
@@ -139,6 +173,8 @@ class EnhancedCrawler:
             # 完成任务进度跟踪
             if task_id:
                 progress_tracker.complete_task(task_id, True)
+                # 取消超时监控
+                await timeout_monitor.unregister_task(task_id)
 
             return str(file_path)
 
@@ -147,6 +183,8 @@ class EnhancedCrawler:
             # 标记任务失败
             if task_id:
                 progress_tracker.complete_task(task_id, False, str(e))
+                # 取消超时监控
+                await timeout_monitor.unregister_task(task_id)
             raise
         finally:
             # 清理会话池
@@ -339,63 +377,86 @@ class EnhancedCrawler:
     async def _download_single_chapter_enhanced(
         self, parser: ChapterParser, chapter_info: ChapterInfo, temp_dir: Path
     ) -> Optional[Chapter]:
-        """增强版单章节下载"""
+        """增强版单章节下载，使用超时管理器"""
         chapter_file = temp_dir / f"{chapter_info.title}.txt"
 
-        for attempt in range(self.download_config.retry_times):
-            try:
-                self.monitor.chapter_started(chapter_info.title, chapter_info.url)
+        # 心跳回调函数
+        def heartbeat_callback(operation_id: str):
+            logger.debug(f"章节下载心跳: {chapter_info.title}")
+        
+        # 包装下载函数
+        async def download_chapter():
+            for attempt in range(self.download_config.retry_times):
+                try:
+                    self.monitor.chapter_started(chapter_info.title, chapter_info.url)
 
-                # 下载章节
-                chapter = await parser.parse(
-                    chapter_info.url, chapter_info.title, chapter_info.order
-                )
-
-                if not chapter or not chapter.content:
-                    raise ValueError("章节内容为空")
-
-                # 验证内容质量
-                if len(chapter.content) < settings.MIN_CHAPTER_LENGTH:
-                    raise ValueError(f"章节内容过短: {len(chapter.content)} 字符")
-
-                quality_score = self.validator.get_chapter_quality_score(
-                    chapter.content
-                )
-                if quality_score < 0.3:  # 质量阈值
-                    raise ValueError(f"章节质量过低: {quality_score}")
-
-                # 保存到临时文件
-                with open(chapter_file, "w", encoding="utf-8") as f:
-                    f.write(chapter.content)
-
-                # 设置章节顺序
-                chapter.order = chapter_info.order
-
-                self.monitor.chapter_completed(
-                    chapter_info.title, len(chapter.content), quality_score
-                )
-
-                logger.debug(
-                    f"章节下载成功: {chapter.title} ({len(chapter.content)} 字符)"
-                )
-                return chapter
-
-            except Exception as e:
-                error_msg = str(e)
-                logger.warning(
-                    f"章节下载失败 (尝试 {attempt + 1}): {chapter_info.title} - {error_msg}"
-                )
-
-                if attempt < self.download_config.retry_times - 1:
-                    await asyncio.sleep(
-                        self.download_config.retry_delay * (attempt + 1)
+                    # 下载章节
+                    chapter = await parser.parse(
+                        chapter_info.url, chapter_info.title, chapter_info.order
                     )
-                else:
-                    # 记录失败章节
-                    self.failed_chapters.append(chapter_info)
-                    self.monitor.chapter_failed(chapter_info.title, error_msg)
 
-        return None
+                    if not chapter or not chapter.content:
+                        raise ValueError("章节内容为空")
+
+                    # 验证内容质量
+                    if len(chapter.content) < settings.MIN_CHAPTER_LENGTH:
+                        raise ValueError(f"章节内容过短: {len(chapter.content)} 字符")
+
+                    quality_score = self.validator.get_chapter_quality_score(
+                        chapter.content
+                    )
+                    if quality_score < 0.3:  # 质量阈值
+                        raise ValueError(f"章节质量过低: {quality_score}")
+
+                    # 保存到临时文件
+                    with open(chapter_file, "w", encoding="utf-8") as f:
+                        f.write(chapter.content)
+
+                    # 设置章节顺序
+                    chapter.order = chapter_info.order
+
+                    self.monitor.chapter_completed(
+                        chapter_info.title, len(chapter.content), quality_score
+                    )
+
+                    logger.debug(
+                        f"章节下载成功: {chapter.title} ({len(chapter.content)} 字符)"
+                    )
+                    return chapter
+
+                except Exception as e:
+                    error_msg = str(e)
+                    logger.warning(
+                        f"章节下载失败 (尝试 {attempt + 1}): {chapter_info.title} - {error_msg}"
+                    )
+
+                    if attempt < self.download_config.retry_times - 1:
+                        await asyncio.sleep(
+                            self.download_config.retry_delay * (attempt + 1)
+                        )
+                    else:
+                        # 记录失败章节
+                        self.failed_chapters.append(chapter_info)
+                        self.monitor.chapter_failed(chapter_info.title, error_msg)
+                        raise
+
+            return None
+
+        try:
+            # 使用超时管理器执行下载
+            return await timeout_manager.execute_with_timeout(
+                f"download_chapter_{chapter_info.title}",
+                download_chapter,
+                heartbeat_callback=heartbeat_callback
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"章节下载超时: {chapter_info.title}")
+            self.failed_chapters.append(chapter_info)
+            self.monitor.chapter_failed(chapter_info.title, "下载超时")
+            return None
+        except Exception as e:
+            logger.error(f"章节下载失败: {chapter_info.title} - {str(e)}")
+            return None
 
     async def _retry_failed_chapters(
         self, parser: ChapterParser, temp_dir: Path
