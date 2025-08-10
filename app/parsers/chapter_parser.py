@@ -155,7 +155,7 @@ class ChapterParser:
                     self._remove_unwanted_elements(element)
 
                     content = element.get_text(separator="\n", strip=True)
-                    
+
                     # 增强内容验证
                     if content and len(content) >= settings.MIN_CHAPTER_LENGTH:
                         # 检查内容是否包含章节特征
@@ -175,52 +175,106 @@ class ChapterParser:
         """检查内容是否符合章节特征"""
         # 章节内容应该包含的特征
         chapter_indicators = [
-            "第", "章", "节", "回", "卷",
-            "正文", "内容", "开始", "结束",
-            "说道", "说道：", "说道:", "说：", "说:",
-            "问道", "问道：", "问道:", "问：", "问:",
-            "回答", "回答：", "回答:", "答：", "答:",
-            "看着", "望着", "盯着", "注视着",
-            "突然", "忽然", "猛地", "瞬间",
-            "心中", "心里", "内心", "脑海",
-            "眼中", "眼里", "面前", "身后",
-            "声音", "话语", "语言", "语气",
-            "表情", "脸色", "神情", "神态"
+            "第",
+            "章",
+            "节",
+            "回",
+            "卷",
+            "正文",
+            "内容",
+            "开始",
+            "结束",
+            "说道",
+            "说道：",
+            "说道:",
+            "说：",
+            "说:",
+            "问道",
+            "问道：",
+            "问道:",
+            "问：",
+            "问:",
+            "回答",
+            "回答：",
+            "回答:",
+            "答：",
+            "答:",
+            "看着",
+            "望着",
+            "盯着",
+            "注视着",
+            "突然",
+            "忽然",
+            "猛地",
+            "瞬间",
+            "心中",
+            "心里",
+            "内心",
+            "脑海",
+            "眼中",
+            "眼里",
+            "面前",
+            "身后",
+            "声音",
+            "话语",
+            "语言",
+            "语气",
+            "表情",
+            "脸色",
+            "神情",
+            "神态",
         ]
-        
+
         # 首页/推荐页面的特征（应该避免）
         homepage_indicators = [
-            "热门小说", "推荐小说", "最新更新", "排行榜",
-            "书库", "分类", "首页", "网站首页",
-            "玄幻小说推荐", "都市小说推荐", "言情小说推荐",
-            "最新章节", "完本小说", "免费小说",
-            "点击阅读", "立即阅读", "开始阅读",
-            "字数：", "状态：", "作者：", "分类：",
-            "更新时间：", "最新章节：", "最新章节:"
+            "热门小说",
+            "推荐小说",
+            "最新更新",
+            "排行榜",
+            "书库",
+            "分类",
+            "首页",
+            "网站首页",
+            "玄幻小说推荐",
+            "都市小说推荐",
+            "言情小说推荐",
+            "最新章节",
+            "完本小说",
+            "免费小说",
+            "点击阅读",
+            "立即阅读",
+            "开始阅读",
+            "字数：",
+            "状态：",
+            "作者：",
+            "分类：",
+            "更新时间：",
+            "最新章节：",
+            "最新章节:",
         ]
-        
+
         content_lower = content.lower()
-        
+
         # 检查是否包含章节特征
         chapter_score = 0
         for indicator in chapter_indicators:
             if indicator in content:
                 chapter_score += 1
-        
+
         # 检查是否包含首页特征
         homepage_score = 0
         for indicator in homepage_indicators:
             if indicator in content_lower:
                 homepage_score += 1
-        
+
         # 如果首页特征太多，认为是无效内容
         if homepage_score > 3:
             return False
-        
+
         # 如果章节特征太少，也认为是无效内容
         if chapter_score < 2:
             return False
-        
+
         return True
 
     async def _parse_with_regex_extraction(self, url: str) -> str:
@@ -630,12 +684,21 @@ class ChapterParser:
     def _is_error_page(self, html: str) -> bool:
         """检查是否是错误页面"""
         error_indicators = [
-            "404", "页面不存在", "页面未找到", "错误页面",
-            "章节不存在", "内容不存在", "访问被拒绝",
-            "403", "500", "服务器错误", "维护中",
-            "请稍后再试", "暂时无法访问"
+            "404",
+            "页面不存在",
+            "页面未找到",
+            "错误页面",
+            "章节不存在",
+            "内容不存在",
+            "访问被拒绝",
+            "403",
+            "500",
+            "服务器错误",
+            "维护中",
+            "请稍后再试",
+            "暂时无法访问",
         ]
-        
+
         html_lower = html.lower()
         for indicator in error_indicators:
             if indicator.lower() in html_lower:
@@ -645,12 +708,22 @@ class ChapterParser:
     def _is_homepage(self, html: str) -> bool:
         """检查是否是首页或推荐页面"""
         homepage_indicators = [
-            "热门小说", "推荐小说", "最新更新", "排行榜",
-            "书库", "分类", "首页", "网站首页",
-            "玄幻小说推荐", "都市小说推荐", "言情小说推荐",
-            "最新章节", "完本小说", "免费小说"
+            "热门小说",
+            "推荐小说",
+            "最新更新",
+            "排行榜",
+            "书库",
+            "分类",
+            "首页",
+            "网站首页",
+            "玄幻小说推荐",
+            "都市小说推荐",
+            "言情小说推荐",
+            "最新章节",
+            "完本小说",
+            "免费小说",
         ]
-        
+
         html_lower = html.lower()
         for indicator in homepage_indicators:
             if indicator.lower() in html_lower:
