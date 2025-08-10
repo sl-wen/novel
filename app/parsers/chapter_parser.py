@@ -114,6 +114,11 @@ class ChapterParser:
         if not html:
             return ""
 
+        # 检查是否是错误页面或首页
+        if self._is_error_page(html) or self._is_homepage(html):
+            logger.warning("智能提取检测到错误页面或首页")
+            return ""
+
         soup = BeautifulSoup(html, "html.parser")
 
         # 尝试多种内容选择器
@@ -150,9 +155,15 @@ class ChapterParser:
                     self._remove_unwanted_elements(element)
 
                     content = element.get_text(separator="\n", strip=True)
+                    
+                    # 增强内容验证
                     if content and len(content) >= settings.MIN_CHAPTER_LENGTH:
-                        logger.debug(f"智能选择器 '{selector}' 提取成功")
-                        return content
+                        # 检查内容是否包含章节特征
+                        if self._is_valid_chapter_content(content):
+                            logger.debug(f"智能选择器 '{selector}' 提取成功")
+                            return content
+                        else:
+                            logger.debug(f"选择器 '{selector}' 内容不符合章节特征")
 
             except Exception as e:
                 logger.debug(f"选择器 '{selector}' 提取失败: {str(e)}")
@@ -160,10 +171,67 @@ class ChapterParser:
 
         return ""
 
+    def _is_valid_chapter_content(self, content: str) -> bool:
+        """检查内容是否符合章节特征"""
+        # 章节内容应该包含的特征
+        chapter_indicators = [
+            "第", "章", "节", "回", "卷",
+            "正文", "内容", "开始", "结束",
+            "说道", "说道：", "说道:", "说：", "说:",
+            "问道", "问道：", "问道:", "问：", "问:",
+            "回答", "回答：", "回答:", "答：", "答:",
+            "看着", "望着", "盯着", "注视着",
+            "突然", "忽然", "猛地", "瞬间",
+            "心中", "心里", "内心", "脑海",
+            "眼中", "眼里", "面前", "身后",
+            "声音", "话语", "语言", "语气",
+            "表情", "脸色", "神情", "神态"
+        ]
+        
+        # 首页/推荐页面的特征（应该避免）
+        homepage_indicators = [
+            "热门小说", "推荐小说", "最新更新", "排行榜",
+            "书库", "分类", "首页", "网站首页",
+            "玄幻小说推荐", "都市小说推荐", "言情小说推荐",
+            "最新章节", "完本小说", "免费小说",
+            "点击阅读", "立即阅读", "开始阅读",
+            "字数：", "状态：", "作者：", "分类：",
+            "更新时间：", "最新章节：", "最新章节:"
+        ]
+        
+        content_lower = content.lower()
+        
+        # 检查是否包含章节特征
+        chapter_score = 0
+        for indicator in chapter_indicators:
+            if indicator in content:
+                chapter_score += 1
+        
+        # 检查是否包含首页特征
+        homepage_score = 0
+        for indicator in homepage_indicators:
+            if indicator in content_lower:
+                homepage_score += 1
+        
+        # 如果首页特征太多，认为是无效内容
+        if homepage_score > 3:
+            return False
+        
+        # 如果章节特征太少，也认为是无效内容
+        if chapter_score < 2:
+            return False
+        
+        return True
+
     async def _parse_with_regex_extraction(self, url: str) -> str:
         """使用正则表达式提取内容"""
         html = await self._fetch_html(url)
         if not html:
+            return ""
+
+        # 检查是否是错误页面或首页
+        if self._is_error_page(html) or self._is_homepage(html):
+            logger.warning("正则提取检测到错误页面或首页")
             return ""
 
         # 常见的内容提取正则模式
@@ -190,10 +258,14 @@ class ChapterParser:
                     if content_parts:
                         content = "\n\n".join(content_parts)
                         if len(content) >= settings.MIN_CHAPTER_LENGTH:
-                            logger.debug(
-                                f"正则表达式提取成功，内容长度: {len(content)}"
-                            )
-                            return content
+                            # 验证内容质量
+                            if self._is_valid_chapter_content(content):
+                                logger.debug(
+                                    f"正则表达式提取成功，内容长度: {len(content)}"
+                                )
+                                return content
+                            else:
+                                logger.debug("正则表达式提取的内容不符合章节特征")
 
             except Exception as e:
                 logger.debug(f"正则表达式提取失败: {str(e)}")
@@ -503,6 +575,11 @@ class ChapterParser:
         Returns:
             章节内容
         """
+        # 检查是否是错误页面或首页
+        if self._is_error_page(html) or self._is_homepage(html):
+            logger.warning(f"检测到错误页面或首页，跳过解析: {title}")
+            return "无法获取章节内容：页面错误或重定向到首页"
+
         # 获取章节内容规则
         content_selectors = self.chapter_rule.get("content", "").split(",")
 
@@ -549,3 +626,33 @@ class ChapterParser:
             content = f"（本章获取失败：{error_msg}）"
 
         return content
+
+    def _is_error_page(self, html: str) -> bool:
+        """检查是否是错误页面"""
+        error_indicators = [
+            "404", "页面不存在", "页面未找到", "错误页面",
+            "章节不存在", "内容不存在", "访问被拒绝",
+            "403", "500", "服务器错误", "维护中",
+            "请稍后再试", "暂时无法访问"
+        ]
+        
+        html_lower = html.lower()
+        for indicator in error_indicators:
+            if indicator.lower() in html_lower:
+                return True
+        return False
+
+    def _is_homepage(self, html: str) -> bool:
+        """检查是否是首页或推荐页面"""
+        homepage_indicators = [
+            "热门小说", "推荐小说", "最新更新", "排行榜",
+            "书库", "分类", "首页", "网站首页",
+            "玄幻小说推荐", "都市小说推荐", "言情小说推荐",
+            "最新章节", "完本小说", "免费小说"
+        ]
+        
+        html_lower = html.lower()
+        for indicator in homepage_indicators:
+            if indicator.lower() in html_lower:
+                return True
+        return False
