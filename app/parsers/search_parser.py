@@ -138,6 +138,18 @@ class SearchParser:
             logger.error("未配置搜索URL模板")
             return ""
 
+        # 如果url字段不是URL模板而是选择器，需要特殊处理
+        if not url_template.startswith(("http://", "https://")):
+            # 这种情况下，可能需要使用书源基础URL
+            base_url = self.source.rule.get("url", "")
+            if base_url:
+                # 简单拼接搜索路径，具体路径可能需要在配置中指定
+                logger.warning(f"书源{self.source.id}的搜索URL配置可能不正确: {url_template}")
+                return base_url.rstrip("/") + "/search"
+            else:
+                logger.error("书源基础URL未配置且搜索URL不是完整URL")
+                return ""
+
         # 替换关键词占位符
         url = url_template.replace("%s", keyword)
         
@@ -330,17 +342,39 @@ class SearchParser:
             cover = self._extract_attr(element, cover_selector, "src")
 
             # 获取详情页URL
-            url_selector = self.search_rule.get("name", "")
+            # 优先使用detail_url字段，如果没有则检查url字段是否为选择器
+            url_selector = self.search_rule.get("detail_url", "")
+            if not url_selector:
+                # 如果没有detail_url，检查url字段是否为选择器（不包含http）
+                url_field = self.search_rule.get("url", "")
+                if url_field and not url_field.startswith(("http://", "https://")):
+                    # url字段是选择器
+                    url_selector = url_field
+                else:
+                    # url字段是URL模板，使用name字段作为选择器
+                    url_selector = self.search_rule.get("name", "")
+            
             url = self._extract_attr(element, url_selector, "href")
 
-            # 如果URL是相对路径，转换为绝对路径
-            if url and not url.startswith(("http://", "https://")):
-                base_url = self.source.rule.get("url", "")
-                if base_url:
-                    if url.startswith("/"):
-                        url = base_url.rstrip("/") + url
-                    else:
-                        url = base_url.rstrip("/") + "/" + url
+            # URL处理逻辑
+            if url:
+                # 如果URL是相对路径，转换为绝对路径
+                if not url.startswith(("http://", "https://")):
+                    base_url = self.source.rule.get("url", "")
+                    if base_url:
+                        if url.startswith("/"):
+                            url = base_url.rstrip("/") + url
+                        else:
+                            url = base_url.rstrip("/") + "/" + url
+                else:
+                    # 如果是绝对URL，检查是否需要URL转换
+                    # 对于使用外部搜索引擎的书源，需要将搜索结果URL转换为目标书源URL
+                    url_transform = self.search_rule.get("url_transform", {})
+                    if url_transform:
+                        from_domain = url_transform.get("from_domain", "")
+                        to_domain = url_transform.get("to_domain", "")
+                        if from_domain and to_domain and from_domain in url:
+                            url = url.replace(from_domain, to_domain)
 
             # 验证必要字段
             if not title or not url:
