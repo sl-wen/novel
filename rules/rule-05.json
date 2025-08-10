@@ -12,6 +12,11 @@
     "list": "body > div.wrap > div > div > div",
     "name": "dl > dt > a",
     "author": "dl > dt > span",
+    "detail_url": "dl > dt > a",
+    "url_transform": {
+      "from_domain": "www.sososhu.com",
+      "to_domain": "www.tianxibook.com"
+    },
     "category": "",
     "latest": "",
     "update": "",
