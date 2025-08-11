@@ -239,27 +239,37 @@ class NovelService:
             all_results, keyword, max_results=max_results
         )
 
-        # 6.1 强制每个书源不超过上限
-        # 强制每源上限为2，保持与系统测试一致
+        # 6.1 强制每个书源不超过上限（每个书源最多2个结果）
         per_source_limit = 2
         source_counts: Dict[int, int] = {}
         capped_results: List[SearchResult] = []
+        
+        # 按书源分组处理结果
+        source_groups: Dict[int, List[SearchResult]] = {}
         for res in filtered_results:
-            if len(capped_results) >= max_results:
-                break
             sid = getattr(res, "source_id", None)
-            if sid is None:
-                count = 0
-            else:
+            if sid is not None:
                 try:
                     sid_int = int(sid)
+                    if sid_int not in source_groups:
+                        source_groups[sid_int] = []
+                    source_groups[sid_int].append(res)
                 except Exception:
-                    sid_int = None
-                count = source_counts.get(sid_int, 0) if sid_int is not None else 0
-            if sid is None or count < per_source_limit:
-                capped_results.append(res)
-                if sid is not None and sid_int is not None:
-                    source_counts[sid_int] = count + 1
+                    continue
+        
+        # 从每个书源取前2个结果
+        for sid, results in source_groups.items():
+            # 每个书源最多取2个结果
+            source_results = results[:per_source_limit]
+            capped_results.extend(source_results)
+            
+            # 如果总结果数达到上限，停止添加
+            if len(capped_results) >= max_results:
+                break
+        
+        # 如果总结果数超过max_results，截取到指定数量
+        if len(capped_results) > max_results:
+            capped_results = capped_results[:max_results]
 
         # 7. 缓存结果
         await self.cache_manager.set_search_results(cache_key, capped_results)

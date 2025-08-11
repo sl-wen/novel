@@ -68,9 +68,10 @@ class SearchParser:
             # 解析搜索结果
             results = self._parse_search_results(html, keyword)
 
-            # 限制每个书源的结果数量
+            # 限制每个书源的结果数量（每个书源最多2个结果）
             if len(results) > settings.MAX_RESULTS_PER_SOURCE:
                 results = results[: settings.MAX_RESULTS_PER_SOURCE]
+                logger.info(f"书源 {self.source.rule.get('name', self.source.id)} 结果数量限制为 {settings.MAX_RESULTS_PER_SOURCE} 个")
 
             logger.info(
                 f"从书源 {self.source.rule.get('name', self.source.id)} "

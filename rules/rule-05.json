@@ -30,7 +30,7 @@
     "word_count": ""
   },
   "toc": {
-    "list": "dd > a",
+    "list": "#list a",
     "title": "text",
     "url": "href",
     "has_pages": true,

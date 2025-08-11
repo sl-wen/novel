@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class DownloadConfig:
     """下载配置"""
 
-    max_concurrent: int = 3  # 降低并发数以提高稳定性
+    max_concurrent: int = 8  # 降低并发数以提高稳定性
     retry_times: int = 5  # 增加重试次数
     retry_delay: float = 2.0
     batch_delay: float = 1.5  # 增加批次间延迟
@@ -537,69 +537,6 @@ class Crawler:
             except Exception as e:
                 logger.warning(f"关闭会话失败: {str(e)}")
         self.session_pool.clear()
-
-    def _clean_chapter_title(self, title: str, order: int) -> str:
-        """
-        清理章节标题，处理包含多个章节号的复杂标题
-
-        Args:
-            title: 原始章节标题
-            order: 章节序号
-
-        Returns:
-            清理后的章节标题
-        """
-        if not title:
-            return f"第{order}章"
-
-        # 移除多余的空白字符
-        title = title.strip()
-
-        # 匹配各种章节号模式
-        chapter_patterns = [
-            # 匹配 "第X章" 格式
-            r"第\d+章",
-            # 匹配 "第X节" 格式
-            r"第\d+节",
-            # 匹配中文数字章节号
-            r"第[一二三四五六七八九十百千万]+[章节]",
-            # 匹配不带"第"字的章节号
-            r"[一二三四五六七八九十百千万]+[章节]",
-            # 匹配 "第X卷" 格式
-            r"第\d+卷",
-            # 匹配中文数字卷号
-            r"第[一二三四五六七八九十百千万]+卷",
-        ]
-
-        # 查找所有匹配的章节号
-        found_chapters = []
-        for pattern in chapter_patterns:
-            matches = re.findall(pattern, title)
-            found_chapters.extend(matches)
-
-        if found_chapters:
-            # 移除所有章节号，保留其他内容
-            cleaned_title = title
-            for chapter in found_chapters:
-                cleaned_title = re.sub(re.escape(chapter), "", cleaned_title)
-
-            # 清理多余的空格和标点
-            cleaned_title = re.sub(r"\s+", " ", cleaned_title.strip())
-            cleaned_title = re.sub(
-                r"^[^\w\u4e00-\u9fff]+", "", cleaned_title
-            )  # 移除开头的非文字字符
-            cleaned_title = re.sub(
-                r"[^\w\u4e00-\u9fff\s]+$", "", cleaned_title
-            )  # 移除结尾的非文字字符
-
-            # 使用order作为章节号，加上清理后的内容
-            if cleaned_title:
-                return f"第{order}章 {cleaned_title}"
-            else:
-                return f"第{order}章"
-        else:
-            # 如果没有找到章节号，添加章节号
-            return f"第{order}章 {title}"
 
     def get_download_progress(self) -> Dict[str, Any]:
         """获取下载进度信息"""
