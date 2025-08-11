@@ -126,7 +126,7 @@ class EnhancedCrawler:
                 book, chapters, download_dir, format
             )
 
-            # 验证文件是否成功生成
+            # 验证文件是否成功生成并完成任务 - 原子操作避免竞态条件
             if not file_path or not file_path.exists():
                 error_msg = f"文件生成失败: 路径为空或文件不存在 ({file_path})"
                 logger.error(error_msg)
@@ -134,10 +134,15 @@ class EnhancedCrawler:
                     progress_tracker.complete_task(task_id, False, error_msg)
                 raise Exception(error_msg)
 
-            # 6.1 记录生成文件路径
+            # 成功生成文件，设置文件路径并完成任务
             if task_id:
+                # 原子操作：设置文件路径并立即完成任务
                 progress_tracker.set_file_path(task_id, str(file_path))
                 logger.info(f"设置文件路径: {task_id} -> {file_path}")
+                
+                # 立即完成任务，确保状态正确更新
+                progress_tracker.complete_task(task_id, True)
+                logger.info(f"任务标记为完成: {task_id}")
 
             # 7. 清理临时文件
             await self._cleanup_temp_files(download_dir)
@@ -145,10 +150,15 @@ class EnhancedCrawler:
             end_time = time.time()
             logger.info(f"下载完成，耗时 {end_time - start_time:.2f} 秒")
 
-            # 完成任务进度跟踪
+            # 验证任务状态是否正确设置（备用检查）
             if task_id:
-                progress_tracker.complete_task(task_id, True)
-                logger.info(f"任务标记为完成: {task_id}")
+                progress = progress_tracker.get_progress(task_id)
+                if progress:
+                    logger.info(f"最终任务状态验证: {task_id} -> {progress.status.value}, 文件路径: {progress.file_path}")
+                    if progress.status.value == "running":
+                        logger.error(f"严重错误：任务状态仍为running，需要调试: {task_id}")
+                else:
+                    logger.error(f"严重错误：无法获取任务状态: {task_id}")
 
             return str(file_path)
 

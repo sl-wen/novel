@@ -269,6 +269,16 @@ async def start_download(
                 # 这里不需要重复调用，避免竞态条件
                 if not file_path:
                     logger.error("下载完成但文件路径为空")
+                    # 如果enhanced_crawler没有正确处理，这里作为备用处理
+                    progress = progress_tracker.get_progress(task_id)
+                    if progress and progress.status == TaskStatus.RUNNING:
+                        progress_tracker.complete_task(task_id, False, "文件路径为空")
+                else:
+                    logger.info(f"后台下载任务完成: {task_id} -> {file_path}")
+                    # 验证任务状态是否正确
+                    progress = progress_tracker.get_progress(task_id)
+                    if progress:
+                        logger.info(f"任务最终状态: {task_id} -> {progress.status.value}, 文件: {progress.file_path}")
             except Exception as e:
                 logger.error(f"后台下载任务失败: {str(e)}")
                 # 只有在enhanced_crawler未处理异常时才标记失败
@@ -286,6 +296,37 @@ async def start_download(
         return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
 
 
+@router.post("/download/fix/{task_id}")
+async def fix_stuck_task(task_id: str):
+    """修复卡住的下载任务状态"""
+    try:
+        from app.utils.progress_tracker import progress_tracker
+        
+        progress = progress_tracker.get_progress(task_id)
+        if not progress:
+            return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
+        
+        # 尝试修复任务状态
+        fixed = progress_tracker.fix_stuck_task(task_id)
+        
+        # 获取修复后的状态
+        updated_progress = progress_tracker.get_progress(task_id)
+        
+        return {
+            "code": 200, 
+            "message": "修复完成" if fixed else "无需修复", 
+            "data": {
+                "fixed": fixed,
+                "before_status": progress.status.value,
+                "after_status": updated_progress.status.value if updated_progress else None,
+                "progress": updated_progress.to_dict() if updated_progress else None
+            }
+        }
+    except Exception as e:
+        logger.error(f"修复任务失败: {str(e)}")
+        return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
+
+
 @router.get("/download/result")
 async def get_download_result(task_id: str = Query(..., description="下载任务ID")):
     """获取已完成任务的文件（若未完成则返回状态）"""
@@ -299,9 +340,18 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         if not progress:
             return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
         
-        # 未完成直接返回状态
+        # 检查任务状态，处理可能的状态不一致问题
         if progress.status not in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
-            return {"code": 200, "message": "running", "data": progress.to_dict()}
+            # 尝试修复卡住的任务状态
+            if progress_tracker.fix_stuck_task(task_id):
+                # 重新获取更新后的状态
+                progress = progress_tracker.get_progress(task_id)
+                if not progress:
+                    return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
+            
+            # 如果仍未完成，返回运行状态
+            if progress.status not in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
+                return {"code": 200, "message": "running", "data": progress.to_dict()}
         
         if progress.status == TaskStatus.FAILED:
             return JSONResponse(status_code=500, content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()})

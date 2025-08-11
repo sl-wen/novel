@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -164,9 +165,19 @@ class ProgressTracker:
             if not file_path:
                 logger.error(f"尝试设置空文件路径: {task_id}")
                 return
+            
+            # 验证文件是否真实存在
+            if not os.path.exists(file_path):
+                logger.error(f"文件路径不存在: {task_id} -> {file_path}")
+                return
                 
             self._tasks[task_id].file_path = file_path
             logger.info(f"设置文件路径成功: {task_id} -> {file_path}")
+            
+            # 验证设置是否成功
+            if self._tasks[task_id].file_path != file_path:
+                logger.error(f"文件路径设置验证失败: {task_id}")
+                
             self._notify_callbacks(task_id)
     
     def complete_task(self, task_id: str, success: bool = True, error_message: str = ""):
@@ -186,7 +197,10 @@ class ProgressTracker:
             progress = self._tasks[task_id]
             # 保留已设置的file_path，不要覆盖
             current_file_path = progress.file_path
-            progress.status = TaskStatus.COMPLETED if success else TaskStatus.FAILED
+            
+            # 确保状态正确更新
+            new_status = TaskStatus.COMPLETED if success else TaskStatus.FAILED
+            progress.status = new_status
             progress.end_time = time.time()
             progress.error_message = error_message
             
@@ -196,8 +210,12 @@ class ProgressTracker:
                 if not current_file_path:
                     logger.warning(f"任务完成但文件路径为空: {task_id}")
             
+            # 验证状态更新是否成功
+            if progress.status != new_status:
+                logger.error(f"状态更新失败: 期望 {new_status.value}, 实际 {progress.status.value}")
+            
             self._notify_callbacks(task_id)
-            logger.info(f"任务{'完成' if success else '失败'}: {task_id}, 文件路径: {current_file_path}")
+            logger.info(f"任务{'完成' if success else '失败'}: {task_id}, 状态: {progress.status.value}, 文件路径: {current_file_path}")
     
     def cancel_task(self, task_id: str):
         """取消任务"""
@@ -207,6 +225,35 @@ class ProgressTracker:
                 self._tasks[task_id].end_time = time.time()
                 self._notify_callbacks(task_id)
                 logger.info(f"取消下载任务: {task_id}")
+    
+    def fix_stuck_task(self, task_id: str):
+        """修复卡住的任务状态"""
+        with self._lock:
+            if task_id not in self._tasks:
+                logger.warning(f"任务不存在: {task_id}")
+                return False
+            
+            progress = self._tasks[task_id]
+            
+            # 如果进度100%但状态仍为running，尝试修复
+            if progress.progress_percentage >= 100.0 and progress.status == TaskStatus.RUNNING:
+                if progress.file_path and os.path.exists(progress.file_path):
+                    # 文件存在，标记为完成
+                    progress.status = TaskStatus.COMPLETED
+                    progress.end_time = time.time()
+                    self._notify_callbacks(task_id)
+                    logger.info(f"修复任务状态: {task_id} -> COMPLETED")
+                    return True
+                else:
+                    # 文件不存在，标记为失败
+                    progress.status = TaskStatus.FAILED
+                    progress.end_time = time.time()
+                    progress.error_message = "文件生成失败：文件不存在"
+                    self._notify_callbacks(task_id)
+                    logger.info(f"修复任务状态: {task_id} -> FAILED")
+                    return True
+            
+            return False
     
     def pause_task(self, task_id: str):
         """暂停任务"""
