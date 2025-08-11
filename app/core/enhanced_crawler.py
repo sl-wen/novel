@@ -31,13 +31,20 @@ logger = logging.getLogger(__name__)
 class DownloadConfig:
     """下载配置"""
 
-    max_concurrent: int = 3  # 降低并发数以提高稳定性
-    retry_times: int = 5  # 增加重试次数
-    retry_delay: float = 2.0
-    batch_delay: float = 1.5  # 增加批次间延迟
-    timeout: int = 120  # 增加超时时间
+    max_concurrent: int = 2  # 进一步降低并发数以提高稳定性
+    retry_times: int = 5  # 保持重试次数
+    retry_delay: float = 3.0  # 增加重试延迟
+    batch_delay: float = 2.0  # 增加批次间延迟
+    timeout: int = 180  # 大幅增加超时时间
     enable_recovery: bool = True  # 启用恢复机制
     progress_callback: Optional[callable] = None
+    
+    # 新增分层超时配置
+    search_timeout: int = 30
+    book_detail_timeout: int = 45
+    toc_timeout: int = 60
+    chapter_timeout: int = 90
+    total_timeout: int = 3600
 
 
 class EnhancedCrawler:
@@ -87,6 +94,7 @@ class EnhancedCrawler:
             url: 小说详情页URL
             source_id: 书源ID
             format: 下载格式
+            task_id: 任务ID（可选）
 
         Returns:
             下载文件路径
@@ -98,24 +106,65 @@ class EnhancedCrawler:
             # 初始化进度跟踪和超时监控
             from app.utils.progress_tracker import progress_tracker
             from app.utils.timeout_monitor import timeout_monitor
-
-            # 注册超时监控
+            
             if task_id:
-                await timeout_monitor.register_task(
-                    task_id,
-                    f"download_novel_{source_id}",
-                    expected_duration=600.0,  # 预期10分钟完成
-                    custom_thresholds={
-                        "warning": 300.0,   # 5分钟警告
-                        "error": 900.0,     # 15分钟错误
-                        "critical": 1800.0, # 30分钟严重
-                    }
-                )
+                # 注册超时监控
+                await timeout_monitor.register_task(task_id, "download_novel")
+                
+                # 定义心跳回调
+                def heartbeat_callback(op_id):
+                    if task_id:
+                        progress_tracker.heartbeat(task_id)
+                        timeout_monitor.update_heartbeat(task_id)
+                        logger.debug(f"下载心跳更新: {task_id}")
+            else:
+                heartbeat_callback = None
 
+            # 使用超时管理器执行整个下载过程
+            result = await timeout_manager.execute_with_timeout(
+                f"download_novel_{source_id}",
+                self._execute_download_with_enhanced_timeout,
+                url, source_id, format, task_id,
+                heartbeat_callback=heartbeat_callback
+            )
+            
+            return result
+            
+        except asyncio.TimeoutError:
+            error_msg = f"下载任务超时: 书源 {source_id}, URL: {url}"
+            logger.error(error_msg)
+            if task_id:
+                progress_tracker.complete_task(task_id, False, error_msg)
+            raise Exception(error_msg)
+        except Exception as e:
+            error_msg = f"下载失败: {str(e)}"
+            logger.error(error_msg)
+            if task_id:
+                progress_tracker.complete_task(task_id, False, error_msg)
+            raise
+        finally:
+            if task_id:
+                await timeout_monitor.unregister_task(task_id)
+            elapsed_time = time.time() - start_time
+            logger.info(f"下载完成，耗时: {elapsed_time:.2f}秒")
+
+    async def _execute_download_with_enhanced_timeout(
+        self,
+        url: str,
+        source_id: int,
+        format: str,
+        task_id: Optional[str] = None,
+    ) -> str:
+        """执行带增强超时管理的下载过程"""
+        logger.info(f"开始增强版下载流程: {url}")
+        start_time = time.time()
+
+        try:
             # 1. 获取小说详情（带重试和多源支持）
             book = await self._get_book_detail_with_fallback(url, source_id)
             if not book:
                 if task_id:
+                    from app.utils.progress_tracker import progress_tracker
                     progress_tracker.complete_task(task_id, False, "获取小说详情失败")
                 raise ValueError("获取小说详情失败")
 
@@ -125,6 +174,7 @@ class EnhancedCrawler:
             toc = await self._get_toc_with_fallback(url, source_id)
             if not toc:
                 if task_id:
+                    from app.utils.progress_tracker import progress_tracker
                     progress_tracker.complete_task(task_id, False, "获取小说目录失败")
                 raise ValueError("获取小说目录失败")
 
@@ -132,6 +182,7 @@ class EnhancedCrawler:
 
             # 初始化或更新进度跟踪
             if task_id:
+                from app.utils.progress_tracker import progress_tracker
                 progress_tracker.update_progress(task_id, 0, "开始下载", 0)
                 # 更新总章节数
                 progress = progress_tracker.get_progress(task_id)
@@ -162,6 +213,7 @@ class EnhancedCrawler:
 
             # 6.1 记录生成文件路径
             if task_id:
+                from app.utils.progress_tracker import progress_tracker
                 progress_tracker.set_file_path(task_id, str(file_path))
 
             # 7. 清理临时文件
@@ -172,9 +224,8 @@ class EnhancedCrawler:
 
             # 完成任务进度跟踪
             if task_id:
+                from app.utils.progress_tracker import progress_tracker
                 progress_tracker.complete_task(task_id, True)
-                # 取消超时监控
-                await timeout_monitor.unregister_task(task_id)
 
             return str(file_path)
 
@@ -182,9 +233,8 @@ class EnhancedCrawler:
             logger.error(f"下载失败: {str(e)}")
             # 标记任务失败
             if task_id:
+                from app.utils.progress_tracker import progress_tracker
                 progress_tracker.complete_task(task_id, False, str(e))
-                # 取消超时监控
-                await timeout_monitor.unregister_task(task_id)
             raise
         finally:
             # 清理会话池
@@ -443,19 +493,45 @@ class EnhancedCrawler:
             return None
 
         try:
-            # 使用超时管理器执行下载
-            return await timeout_manager.execute_with_timeout(
-                f"download_chapter_{chapter_info.title}",
-                download_chapter,
+            # 使用增强的超时管理器下载章节
+            chapter = await timeout_manager.execute_with_timeout(
+                f"download_chapter_{self.source.id}",
+                parser.parse,
+                chapter_info.url, chapter_info.title, chapter_info.order,
                 heartbeat_callback=heartbeat_callback
             )
+            
+            if chapter and chapter.content:
+                # 验证章节内容质量
+                if len(chapter.content) < 50:
+                    logger.warning(f"章节内容过短: {chapter_info.title} ({len(chapter.content)} 字符)")
+                    self.failed_chapters.append(chapter_info)
+                    self.monitor.chapter_failed(chapter_info.title, "内容过短")
+                    return None
+                
+                # 保存到临时文件
+                chapter_file = temp_dir / f"{chapter_info.title}.txt"
+                with open(chapter_file, "w", encoding="utf-8") as f:
+                    f.write(chapter.content)
+                
+                self.monitor.chapter_completed(chapter_info.title, len(chapter.content))
+                logger.debug(f"章节下载成功: {chapter.title}")
+                return chapter
+            else:
+                logger.warning(f"章节内容为空: {chapter_info.title}")
+                self.failed_chapters.append(chapter_info)
+                self.monitor.chapter_failed(chapter_info.title, "内容为空")
+                return None
+                
         except asyncio.TimeoutError:
-            logger.error(f"章节下载超时: {chapter_info.title}")
+            logger.error(f"章节下载超时: {chapter_info.title} (使用增强超时管理)")
             self.failed_chapters.append(chapter_info)
             self.monitor.chapter_failed(chapter_info.title, "下载超时")
             return None
         except Exception as e:
             logger.error(f"章节下载失败: {chapter_info.title} - {str(e)}")
+            self.failed_chapters.append(chapter_info)
+            self.monitor.chapter_failed(chapter_info.title, str(e))
             return None
 
     async def _retry_failed_chapters(
@@ -468,13 +544,15 @@ class EnhancedCrawler:
             try:
                 logger.info(f"重试章节: {chapter_info.title}")
 
-                # 使用更长的超时时间
-                chapter = await asyncio.wait_for(
-                    parser.parse(chapter_info.url),
-                    timeout=self.download_config.timeout * 2,
+                # 使用增强的超时管理器重试，使用更长的超时时间
+                chapter = await timeout_manager.execute_with_timeout(
+                    f"retry_chapter_{self.source.id}",
+                    parser.parse,
+                    chapter_info.url, chapter_info.title, chapter_info.order,
+                    heartbeat_callback=lambda op_id: logger.debug(f"重试心跳: {chapter_info.title}")
                 )
 
-                if chapter and chapter.content:
+                if chapter and chapter.content and len(chapter.content) >= 50:
                     chapter.order = chapter_info.order
                     retry_chapters.append(chapter)
 
@@ -484,7 +562,11 @@ class EnhancedCrawler:
                         f.write(chapter.content)
 
                     logger.info(f"重试成功: {chapter.title}")
+                else:
+                    logger.warning(f"重试失败: {chapter_info.title} - 内容无效")
 
+            except asyncio.TimeoutError:
+                logger.error(f"重试超时: {chapter_info.title}")
             except Exception as e:
                 logger.error(f"重试失败: {chapter_info.title} - {str(e)}")
 
