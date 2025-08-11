@@ -215,12 +215,16 @@ async def get_download_progress(
     task_id: str = Query(..., description="下载任务ID")
 ):
     """
-    获取下载进度
+    获取下载进度（增强版，支持超时监控）
     """
     try:
         logger.info(f"获取下载进度，任务ID：{task_id}")
         
         from app.utils.progress_tracker import progress_tracker
+        from app.utils.timeout_manager import timeout_manager
+        
+        # 更新心跳
+        progress_tracker.heartbeat(task_id)
         
         progress = progress_tracker.get_progress(task_id)
         if not progress:
@@ -233,7 +237,14 @@ async def get_download_progress(
                 },
             )
         
-        return {"code": 200, "message": "success", "data": progress.to_dict()}
+        # 获取超时统计信息
+        timeout_stats = timeout_manager.get_stats(f"download_task_{task_id}")
+        
+        result_data = progress.to_dict()
+        if timeout_stats:
+            result_data["timeout_stats"] = timeout_stats
+        
+        return {"code": 200, "message": "success", "data": result_data}
     except Exception as e:
         logger.error(f"获取下载进度失败: {str(e)}")
         return JSONResponse(
@@ -331,6 +342,130 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
     except Exception as e:
         logger.error(f"获取下载结果失败: {str(e)}")
         return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
+
+
+@router.get("/download/progress/smart")
+async def smart_poll_download_progress(
+    task_id: str = Query(..., description="下载任务ID"),
+    timeout: float = Query(60.0, description="轮询超时时间（秒）"),
+):
+    """
+    智能轮询下载进度，自动调整轮询间隔
+    """
+    try:
+        from app.utils.progress_tracker import progress_tracker
+        from app.utils.enhanced_polling_strategy import polling_manager, PollingConfig
+        
+        logger.info(f"开始智能轮询任务进度: {task_id}")
+        
+        # 配置智能轮询
+        config = PollingConfig(
+            base_interval=2.0,
+            max_interval=15.0,
+            min_interval=0.5,
+            max_attempts=int(timeout / 0.5),  # 基于超时时间计算最大尝试次数
+        )
+        
+        async def check_progress():
+            progress = progress_tracker.get_progress(task_id)
+            if not progress:
+                raise Exception(f"任务不存在: {task_id}")
+            
+            # 更新心跳
+            progress_tracker.heartbeat(task_id)
+            return progress
+        
+        def is_complete(progress):
+            return progress.status.value in ["completed", "failed", "cancelled"]
+        
+        def progress_callback(progress):
+            logger.debug(f"轮询进度更新: {task_id} - {progress.progress_percentage:.1f}%")
+        
+        def heartbeat_callback(polling_task_id):
+            logger.debug(f"轮询心跳: {polling_task_id}")
+        
+        # 启动智能轮询
+        polling_task_id = f"poll_{task_id}"
+        await polling_manager.start_polling_task(
+            polling_task_id,
+            check_progress,
+            is_complete,
+            config,
+            progress_callback,
+            heartbeat_callback
+        )
+        
+        # 等待结果
+        final_progress = await polling_manager.get_task_result(
+            polling_task_id, wait=True, timeout=timeout
+        )
+        
+        if not final_progress:
+            raise Exception("轮询超时或失败")
+        
+        # 获取轮询统计
+        polling_stats = polling_manager.get_task_stats(polling_task_id)
+        
+        result_data = final_progress.to_dict()
+        if polling_stats:
+            result_data["polling_stats"] = polling_stats
+        
+        return {"code": 200, "message": "success", "data": result_data}
+        
+    except Exception as e:
+        logger.error(f"智能轮询失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"智能轮询失败: {str(e)}",
+                "data": None,
+            },
+        )
+
+
+@router.get("/monitor/timeout")
+async def get_timeout_monitor_stats():
+    """
+    获取超时监控统计信息
+    """
+    try:
+        from app.utils.timeout_monitor import timeout_monitor
+        
+        monitor_stats = timeout_monitor.get_monitor_stats()
+        recent_alerts = timeout_monitor.get_recent_alerts(minutes=60)
+        
+        # 转换告警为字典格式
+        alerts_data = []
+        for alert in recent_alerts:
+            alerts_data.append({
+                "task_id": alert.task_id,
+                "operation_name": alert.operation_name,
+                "alert_level": alert.alert_level.value,
+                "message": alert.message,
+                "timestamp": alert.timestamp,
+                "duration": alert.duration,
+                "retry_count": alert.retry_count,
+            })
+        
+        return {
+            "code": 200,
+            "message": "success",
+            "data": {
+                "monitor_stats": monitor_stats,
+                "recent_alerts": alerts_data,
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取超时监控统计失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"获取超时监控统计失败: {str(e)}",
+                "data": None,
+            },
+        )
 
 
 @router.get("/sources")

@@ -40,14 +40,21 @@ app.include_router(optimized_novels.router, prefix="/api")
 
 @app.on_event("startup")
 async def on_startup():
-    """应用启动时触发书源验证"""
+    """应用启动时触发书源验证和超时监控"""
     try:
         from app.services.novel_service import NovelService
+        from app.utils.timeout_monitor import start_timeout_monitoring
 
+        # 启动书源验证
         service = NovelService()
         await service._validate_sources_async()
+        
+        # 启动超时监控
+        await start_timeout_monitoring()
+        logger.info("超时监控系统已启动")
+        
     except Exception as e:
-        logger.warning(f"启动时验证书源失败: {str(e)}")
+        logger.warning(f"启动时初始化失败: {str(e)}")
 
 
 # 全局异常处理
@@ -82,13 +89,20 @@ async def root():
 
 @app.on_event("shutdown")
 async def on_shutdown():
-    """应用关闭时优雅清理 HTTP 资源"""
+    """应用关闭时优雅清理资源"""
     try:
         from app.utils.enhanced_http_client import http_client
+        from app.utils.timeout_monitor import timeout_monitor
 
+        # 关闭HTTP客户端
         await http_client.shutdown()
+        
+        # 停止超时监控
+        await timeout_monitor.stop_monitoring()
+        logger.info("超时监控系统已停止")
+        
     except Exception as e:
-        logger.warning(f"关闭HTTP客户端时发生异常: {e}")
+        logger.warning(f"关闭资源时发生异常: {e}")
 
 
 if __name__ == "__main__":
