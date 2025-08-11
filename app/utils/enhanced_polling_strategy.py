@@ -494,6 +494,39 @@ class AdvancedPollingManager:
     def get_task_stats(self, task_id: str) -> Optional[Dict]:
         """获取任务统计信息"""
         return self.strategy_manager.get_polling_stats(task_id)
+    
+    async def wait_for_completion(self, task_id: str) -> Any:
+        """
+        等待轮询任务完成并返回结果
+        
+        Args:
+            task_id: 任务ID
+            
+        Returns:
+            任务结果
+            
+        Raises:
+            ValueError: 任务不存在
+            Exception: 任务执行失败
+        """
+        async with self._lock:
+            task = self.active_tasks.get(task_id)
+            if not task:
+                # 检查是否已有结果
+                if task_id in self.task_results:
+                    result = self.task_results[task_id]
+                    if isinstance(result, dict) and "error" in result:
+                        raise Exception(result["error"])
+                    return result
+                raise ValueError(f"轮询任务不存在: {task_id}")
+        
+        # 等待任务完成
+        try:
+            result = await task
+            return result
+        except Exception as e:
+            logger.error(f"等待轮询任务 {task_id} 完成时失败: {str(e)}")
+            raise
 
 
 # 全局轮询管理器实例
