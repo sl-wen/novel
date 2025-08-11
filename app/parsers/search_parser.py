@@ -358,6 +358,10 @@ class SearchParser:
 
             # URL处理逻辑
             if url:
+                # 记录原始URL用于调试
+                original_url = url
+                logger.debug(f"原始URL: {original_url}")
+                
                 # 如果URL是相对路径，转换为绝对路径
                 if not url.startswith(("http://", "https://")):
                     base_url = self.source.rule.get("url", "")
@@ -366,6 +370,7 @@ class SearchParser:
                             url = base_url.rstrip("/") + url
                         else:
                             url = base_url.rstrip("/") + "/" + url
+                        logger.debug(f"相对路径转换: {original_url} -> {url}")
                 else:
                     # 如果是绝对URL，检查是否需要URL转换
                     # 对于使用外部搜索引擎的书源，需要将搜索结果URL转换为目标书源URL
@@ -373,8 +378,37 @@ class SearchParser:
                     if url_transform:
                         from_domain = url_transform.get("from_domain", "")
                         to_domain = url_transform.get("to_domain", "")
-                        if from_domain and to_domain and from_domain in url:
-                            url = url.replace(from_domain, to_domain)
+                        logger.debug(f"URL转换配置: {from_domain} -> {to_domain}")
+                        
+                        if from_domain and to_domain:
+                            # 更强健的域名转换逻辑
+                            if from_domain in url:
+                                # 确保完整域名匹配，避免部分匹配问题
+                                if f"//{from_domain}" in url or url.startswith(f"https://{from_domain}") or url.startswith(f"http://{from_domain}"):
+                                    url = url.replace(from_domain, to_domain)
+                                    logger.info(f"书源 {self.source.id} URL转换: {original_url} -> {url}")
+                                    
+                                    # 验证转换后的URL是否符合预期格式
+                                    validation_pattern = url_transform.get("validation_pattern")
+                                    if validation_pattern:
+                                        import re
+                                        if not re.match(validation_pattern, url):
+                                            logger.error(f"书源 {self.source.id} URL转换后格式验证失败: {url}, 期望格式: {validation_pattern}")
+                                            return None
+                                        else:
+                                            logger.debug(f"书源 {self.source.id} URL格式验证通过: {url}")
+                                else:
+                                    logger.warning(f"书源 {self.source.id} URL转换失败: 域名不匹配 {from_domain} in {url}")
+                            else:
+                                logger.warning(f"书源 {self.source.id} URL无需转换: {url}")
+                
+                # 验证转换后的URL格式
+                if not url.startswith(("http://", "https://")):
+                    logger.error(f"书源 {self.source.id} URL格式无效: {url}")
+                    return None
+            else:
+                logger.warning(f"书源 {self.source.id} 未能提取到URL，选择器: {url_selector}")
+                return None
 
             # 验证必要字段
             if not title or not url:

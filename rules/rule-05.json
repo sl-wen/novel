@@ -9,13 +9,15 @@
     "url": "https://www.sososhu.com/?q=%s&site=xtxxs",
     "method": "get",
     "data": "{}",
+    "timeout": 30,
     "list": "body > div.wrap > div > div > div",
     "name": "dl > dt > a",
     "author": "dl > dt > span",
     "detail_url": "dl > dt > a",
     "url_transform": {
       "from_domain": "www.sososhu.com",
-      "to_domain": "www.tianxibook.com"
+      "to_domain": "www.tianxibook.com",
+      "validation_pattern": "^https?://www\\.tianxibook\\.com/"
     },
     "category": "",
     "latest": "",
@@ -24,6 +26,7 @@
     "word_count": ""
   },
   "book": {
+    "timeout": 45,
     "name": "meta[property=\"og:novel:book_name\"]",
     "author": "meta[property=\"og:novel:author\"]",
     "intro": "meta[property=\"og:description\"]",
@@ -35,6 +38,7 @@
     "word_count": ""
   },
   "toc": {
+    "timeout": 60,
     "list": "dd > a",
     "title": "text",
     "url": "href",
@@ -42,6 +46,7 @@
     "next_page": "#indexselect > option"
   },
   "chapter": {
+    "timeout": 90,
     "title": "#wrapper > article > h1",
     "content": "#booktxt,.content,.read-content,#content,#chapter-content,.chapter-content,.book-content,#book-content,.novel-content,#novel-content,.text,#text,article,.article,.post-content,.entry-content",
     "ad_patterns": [

@@ -69,18 +69,23 @@ class Source:
         if "chapter" in self.rule and not self.rule["chapter"].get("baseUri"):
             self.rule["chapter"]["baseUri"] = self.rule.get("url", "")
 
-        # 设置timeout默认值 (调整为更合理的值)
+        # 设置timeout默认值 (使用增强的超时配置)
         if "search" in self.rule and not self.rule["search"].get("timeout"):
-            self.rule["search"]["timeout"] = 8
+            # 使用配置中的搜索超时时间
+            from app.core.config import settings
+            self.rule["search"]["timeout"] = getattr(settings, 'SEARCH_TIMEOUT', 30)
 
         if "book" in self.rule and not self.rule["book"].get("timeout"):
-            self.rule["book"]["timeout"] = 8
+            from app.core.config import settings
+            self.rule["book"]["timeout"] = getattr(settings, 'BOOK_DETAIL_TIMEOUT', 45)
 
         if "toc" in self.rule and not self.rule["toc"].get("timeout"):
-            self.rule["toc"]["timeout"] = 10
+            from app.core.config import settings
+            self.rule["toc"]["timeout"] = getattr(settings, 'TOC_TIMEOUT', 60)
 
         if "chapter" in self.rule and not self.rule["chapter"].get("timeout"):
-            self.rule["chapter"]["timeout"] = 8
+            from app.core.config import settings
+            self.rule["chapter"]["timeout"] = getattr(settings, 'CHAPTER_TIMEOUT', 90)
 
     @classmethod
     def from_rule_file(cls, rule_file: Path) -> "Source":

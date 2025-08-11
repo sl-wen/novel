@@ -51,20 +51,27 @@ class Settings(BaseSettings):
     DEFAULT_FORMAT: str = "txt"
 
     # HTTP设置
-    DEFAULT_TIMEOUT: int = 100  # 秒
-    REQUEST_RETRY_TIMES: int = 2  # 请求重试次数
-    REQUEST_RETRY_DELAY: float = 2.0  # 请求重试延迟（秒）
+    DEFAULT_TIMEOUT: int = 180  # 增加到180秒，适应更长的下载时间
+    REQUEST_RETRY_TIMES: int = 3  # 增加重试次数
+    REQUEST_RETRY_DELAY: float = 3.0  # 增加重试延迟（秒）
+    
+    # 分层超时设置
+    SEARCH_TIMEOUT: int = 30      # 搜索超时
+    BOOK_DETAIL_TIMEOUT: int = 45 # 书籍详情超时
+    TOC_TIMEOUT: int = 60        # 目录获取超时
+    CHAPTER_TIMEOUT: int = 90    # 单章节下载超时
+    DOWNLOAD_TOTAL_TIMEOUT: int = 3600  # 总下载超时（1小时）
     
     # 增强超时设置
-    POLLING_BASE_TIMEOUT: float = 30.0  # 轮询基础超时（秒）
-    POLLING_MAX_TIMEOUT: float = 300.0  # 轮询最大超时（秒）
-    POLLING_MIN_TIMEOUT: float = 10.0   # 轮询最小超时（秒）
-    POLLING_HEARTBEAT_INTERVAL: float = 5.0  # 心跳间隔（秒）
-    POLLING_MAX_ATTEMPTS: int = 200     # 轮询最大尝试次数
+    POLLING_BASE_TIMEOUT: float = 60.0   # 增加轮询基础超时（秒）
+    POLLING_MAX_TIMEOUT: float = 600.0   # 增加轮询最大超时（秒）
+    POLLING_MIN_TIMEOUT: float = 15.0    # 增加轮询最小超时（秒）
+    POLLING_HEARTBEAT_INTERVAL: float = 10.0  # 增加心跳间隔（秒）
+    POLLING_MAX_ATTEMPTS: int = 360      # 增加轮询最大尝试次数（6小时）
     
     # 熔断器设置
-    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 5  # 熔断器失败阈值
-    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: float = 60.0  # 熔断器恢复超时（秒）
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = 8  # 增加熔断器失败阈值
+    CIRCUIT_BREAKER_RECOVERY_TIMEOUT: float = 120.0  # 增加熔断器恢复超时（秒）
     DEFAULT_HEADERS: dict = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

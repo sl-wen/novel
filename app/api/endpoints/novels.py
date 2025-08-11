@@ -263,30 +263,70 @@ async def start_download(
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
     format: str = Query(settings.DEFAULT_FORMAT, description="下载格式，支持txt、epub"),
 ):
-    """启动异步下载任务，立即返回任务ID"""
+    """启动异步下载任务，立即返回任务ID（增强版）"""
     try:
         from app.utils.progress_tracker import progress_tracker
+        from app.utils.timeout_manager import timeout_manager
+        from app.utils.timeout_monitor import timeout_monitor
         
         # 创建任务
         task_id = progress_tracker.create_task(total_chapters=0)
         progress_tracker.start_task(task_id)
-        logger.info(f"启动下载任务: {task_id} ({url}, source={sourceId}, format={format})")
+        logger.info(f"启动增强下载任务: {task_id} ({url}, source={sourceId}, format={format})")
         
-        async def run_download():
+        async def run_enhanced_download():
+            """运行增强版下载任务"""
             try:
-                file_path = await novel_service.download(url, sourceId, format, task_id=task_id)
+                # 注册超时监控
+                await timeout_monitor.register_task(
+                    task_id, 
+                    "download_novel",
+                    expected_duration=1800.0,  # 预期30分钟完成
+                    custom_thresholds={
+                        "warning": 600.0,    # 10分钟警告
+                        "error": 1800.0,     # 30分钟错误  
+                        "critical": 3600.0,  # 1小时严重
+                    }
+                )
+                
+                # 使用超时管理器执行下载
+                file_path = await timeout_manager.execute_with_timeout(
+                    f"download_task_{task_id}",
+                    novel_service.download,
+                    url, sourceId, format, task_id,
+                    heartbeat_callback=lambda op_id: (
+                        progress_tracker.heartbeat(task_id),
+                        timeout_monitor.update_heartbeat(task_id),
+                        logger.debug(f"下载任务心跳: {task_id}")
+                    )
+                )
+                
                 if file_path:
                     progress_tracker.set_file_path(task_id, file_path)
                     progress_tracker.complete_task(task_id, True)
+                    logger.info(f"下载任务完成: {task_id} -> {file_path}")
                 else:
                     progress_tracker.complete_task(task_id, False, "文件生成失败")
+                    logger.error(f"下载任务失败: {task_id} - 文件生成失败")
+                    
+            except asyncio.TimeoutError:
+                error_msg = f"下载任务超时: {task_id}"
+                logger.error(error_msg)
+                progress_tracker.complete_task(task_id, False, error_msg)
             except Exception as e:
-                logger.error(f"后台下载任务失败: {str(e)}")
-                progress_tracker.complete_task(task_id, False, str(e))
+                error_msg = f"后台下载任务失败: {str(e)}"
+                logger.error(error_msg)
+                progress_tracker.complete_task(task_id, False, error_msg)
+            finally:
+                # 清理超时监控
+                try:
+                    await timeout_monitor.unregister_task(task_id)
+                except Exception as e:
+                    logger.warning(f"清理超时监控失败: {str(e)}")
         
-        # 后台执行
+        # 后台执行增强版下载
         import asyncio
-        asyncio.create_task(run_download())
+        asyncio.create_task(run_enhanced_download())
         
         return {"code": 202, "message": "accepted", "data": {"task_id": task_id}}
     except Exception as e:
@@ -345,75 +385,89 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
 
 
 @router.get("/download/progress/smart")
-async def smart_poll_download_progress(
+async def get_download_progress_smart(
     task_id: str = Query(..., description="下载任务ID"),
-    timeout: float = Query(60.0, description="轮询超时时间（秒）"),
+    timeout: int = Query(120, description="轮询超时时间（秒）")
 ):
     """
-    智能轮询下载进度，自动调整轮询间隔
+    智能轮询下载进度（推荐使用）
+    自动调整轮询间隔，基于进度智能优化，减少无效请求
     """
     try:
-        from app.utils.progress_tracker import progress_tracker
-        from app.utils.enhanced_polling_strategy import polling_manager, PollingConfig
+        logger.info(f"智能轮询下载进度，任务ID：{task_id}, 超时：{timeout}秒")
         
-        logger.info(f"开始智能轮询任务进度: {task_id}")
+        from app.utils.progress_tracker import progress_tracker
+        from app.utils.timeout_manager import timeout_manager
+        from app.utils.enhanced_polling_strategy import polling_manager, PollingConfig, PollingStrategy
         
         # 配置智能轮询
         config = PollingConfig(
+            strategy=PollingStrategy.SMART_POLLING,
             base_interval=2.0,
-            max_interval=15.0,
+            max_interval=min(30.0, timeout / 10),  # 动态调整最大间隔
             min_interval=0.5,
-            max_attempts=int(timeout / 0.5),  # 基于超时时间计算最大尝试次数
+            max_attempts=max(50, timeout // 2)  # 基于超时时间计算最大尝试次数
         )
         
-        async def check_progress():
+        # 定义检查函数
+        def check_progress():
             progress = progress_tracker.get_progress(task_id)
             if not progress:
-                raise Exception(f"任务不存在: {task_id}")
+                raise ValueError(f"任务不存在: {task_id}")
             
             # 更新心跳
             progress_tracker.heartbeat(task_id)
             return progress
         
-        def is_complete(progress):
-            return progress.status.value in ["completed", "failed", "cancelled"]
-        
-        def progress_callback(progress):
-            logger.debug(f"轮询进度更新: {task_id} - {progress.progress_percentage:.1f}%")
-        
-        def heartbeat_callback(polling_task_id):
-            logger.debug(f"轮询心跳: {polling_task_id}")
+        # 定义完成检查函数
+        def is_completed(progress):
+            return progress.status in ["completed", "failed", "cancelled"]
         
         # 启动智能轮询
-        polling_task_id = f"poll_{task_id}"
-        await polling_manager.start_polling_task(
-            polling_task_id,
-            check_progress,
-            is_complete,
-            config,
-            progress_callback,
-            heartbeat_callback
-        )
-        
-        # 等待结果
-        final_progress = await polling_manager.get_task_result(
-            polling_task_id, wait=True, timeout=timeout
-        )
-        
-        if not final_progress:
-            raise Exception("轮询超时或失败")
-        
-        # 获取轮询统计
-        polling_stats = polling_manager.get_task_stats(polling_task_id)
-        
-        result_data = final_progress.to_dict()
-        if polling_stats:
-            result_data["polling_stats"] = polling_stats
-        
-        return {"code": 200, "message": "success", "data": result_data}
+        try:
+            polling_task_id = await polling_manager.start_polling_task(
+                f"smart_poll_{task_id}",
+                check_function=check_progress,
+                completion_check=is_completed,
+                config=config
+            )
+            
+            # 等待轮询完成或超时
+            final_progress = await asyncio.wait_for(
+                polling_manager.wait_for_completion(polling_task_id),
+                timeout=timeout
+            )
+            
+            # 获取轮询统计
+            polling_stats = polling_manager.get_task_stats(polling_task_id)
+            
+            # 获取超时统计信息
+            timeout_stats = timeout_manager.get_stats(f"download_task_{task_id}")
+            
+            result_data = final_progress.to_dict()
+            if timeout_stats:
+                result_data["timeout_stats"] = timeout_stats
+            if polling_stats:
+                result_data["polling_stats"] = polling_stats
+            
+            return {"code": 200, "message": "success", "data": result_data}
+            
+        except asyncio.TimeoutError:
+            # 智能轮询超时，返回当前进度
+            logger.warning(f"智能轮询超时: {task_id}")
+            progress = progress_tracker.get_progress(task_id)
+            if progress:
+                result_data = progress.to_dict()
+                result_data["polling_timeout"] = True
+                return {"code": 200, "message": "polling_timeout", "data": result_data}
+            else:
+                return JSONResponse(
+                    status_code=404,
+                    content={"code": 404, "message": f"任务不存在: {task_id}", "data": None}
+                )
         
     except Exception as e:
-        logger.error(f"智能轮询失败: {str(e)}")
+        logger.error(f"智能轮询下载进度失败: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={
