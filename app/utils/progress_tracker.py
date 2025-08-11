@@ -160,7 +160,13 @@ class ProgressTracker:
             if task_id not in self._tasks:
                 logger.warning(f"任务不存在: {task_id}")
                 return
+            
+            if not file_path:
+                logger.error(f"尝试设置空文件路径: {task_id}")
+                return
+                
             self._tasks[task_id].file_path = file_path
+            logger.info(f"设置文件路径成功: {task_id} -> {file_path}")
             self._notify_callbacks(task_id)
     
     def complete_task(self, task_id: str, success: bool = True, error_message: str = ""):
@@ -178,15 +184,20 @@ class ProgressTracker:
                 return
             
             progress = self._tasks[task_id]
+            # 保留已设置的file_path，不要覆盖
+            current_file_path = progress.file_path
             progress.status = TaskStatus.COMPLETED if success else TaskStatus.FAILED
             progress.end_time = time.time()
             progress.error_message = error_message
             
             if success:
                 progress.progress_percentage = 100.0
+                # 确保成功完成的任务有file_path
+                if not current_file_path:
+                    logger.warning(f"任务完成但文件路径为空: {task_id}")
             
             self._notify_callbacks(task_id)
-            logger.info(f"任务{'完成' if success else '失败'}: {task_id}")
+            logger.info(f"任务{'完成' if success else '失败'}: {task_id}, 文件路径: {current_file_path}")
     
     def cancel_task(self, task_id: str):
         """取消任务"""
