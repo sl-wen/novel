@@ -412,7 +412,7 @@ class NovelService:
         Returns:
             下载文件路径
         """
-        logger.info(f"开始优化下载: {url}")
+        logger.info(f"开始下载: {url}")
         start_time = time.time()
 
         try:
