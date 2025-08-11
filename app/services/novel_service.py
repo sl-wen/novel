@@ -388,6 +388,94 @@ class NovelService:
 
         return score
 
+    async def _search_source_with_timeout(self, source: Source, keyword: str) -> List[SearchResult]:
+        """在指定书源中搜索（带超时控制）
+
+        Args:
+            source: 书源对象
+            keyword: 搜索关键词
+
+        Returns:
+            搜索结果列表
+        """
+        try:
+            search_parser = SearchParser(source)
+            results = await search_parser.parse(keyword)
+            return results
+        except Exception as e:
+            logger.error(f"书源 {source.rule.get('name', source.id)} 搜索异常: {str(e)}")
+            return []
+
+    async def get_book_detail(self, url: str, source_id: int) -> Optional[Book]:
+        """获取书籍详情
+
+        Args:
+            url: 书籍详情页URL
+            source_id: 书源ID
+
+        Returns:
+            书籍详情对象
+        """
+        try:
+            source = self.sources.get(source_id)
+            if not source:
+                logger.error(f"未找到书源: {source_id}")
+                return None
+
+            book_parser = BookParser(source)
+            book = await book_parser.parse(url)
+            return book
+        except Exception as e:
+            logger.error(f"获取书籍详情失败: {str(e)}")
+            return None
+
+    async def get_toc(self, url: str, source_id: int) -> List[ChapterInfo]:
+        """获取小说目录
+
+        Args:
+            url: 书籍详情页URL
+            source_id: 书源ID
+
+        Returns:
+            章节信息列表
+        """
+        try:
+            source = self.sources.get(source_id)
+            if not source:
+                logger.error(f"未找到书源: {source_id}")
+                return []
+
+            toc_parser = TocParser(source)
+            chapters = await toc_parser.parse(url)
+            return chapters
+        except Exception as e:
+            logger.error(f"获取目录失败: {str(e)}")
+            return []
+
+    async def get_sources(self) -> List[Dict]:
+        """获取所有书源信息
+
+        Returns:
+            书源信息列表
+        """
+        try:
+            sources_list = []
+            for source_id, source in self.sources.items():
+                source_info = {
+                    "id": source_id,
+                    "rule": source.rule,
+                    "enabled": source.rule.get("enabled", True),
+                    "name": source.rule.get("name", f"书源{source_id}")
+                }
+                sources_list.append(source_info)
+            
+            # 按ID排序
+            sources_list.sort(key=lambda x: x["id"])
+            return sources_list
+        except Exception as e:
+            logger.error(f"获取书源列表失败: {str(e)}")
+            return []
+
     async def download(
         self,
         url: str,

@@ -481,7 +481,7 @@ async def start_download(
         import asyncio
         asyncio.create_task(run_download())
         
-        return {"code": 202, "message": "accepted", "data": {"task_id": task_id}}
+        return JSONResponse(status_code=202, content={"code": 202, "message": "accepted", "data": {"task_id": task_id}})
     except Exception as e:
         logger.error(f"启动下载任务失败: {str(e)}")
         return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})

@@ -475,7 +475,7 @@ class ComprehensiveTest:
                 # 使用第一个搜索结果进行后续测试
                 first_book = search_results[0]
                 book_url = first_book.get("url")
-                source_id = first_book.get("sourceId", 1)
+                source_id = first_book.get("sourceId", 2)  # 默认使用书海阁小说网
                 
                 # 获取详情测试
                 detail_result, book_detail = self.test_get_detail(book_url, source_id)

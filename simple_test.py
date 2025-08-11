@@ -17,9 +17,13 @@ API_BASE = f"{BASE_URL}/api/optimized"
 def make_request(url, method="GET", params=None, timeout=30):
     """发送HTTP请求"""
     try:
-        if params and method == "GET":
+        if params:
             query_string = urllib.parse.urlencode(params)
-            url = f"{url}?{query_string}"
+            if method == "GET":
+                url = f"{url}?{query_string}"
+            elif method == "POST":
+                # 对于POST请求，参数作为query string发送（因为FastAPI端点使用Query参数）
+                url = f"{url}?{query_string}"
         
         req = urllib.request.Request(url)
         if method == "POST":
