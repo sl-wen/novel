@@ -353,13 +353,32 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         
         progress = progress_tracker.get_progress(task_id)
         if not progress:
+            logger.warning(f"任务不存在: {task_id}")
             return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
         
         # 导入TaskStatus枚举
         from app.utils.progress_tracker import TaskStatus
         
+        # 验证任务状态一致性
+        progress_tracker.validate_task_status(task_id)
+        
+        # 添加详细的调试日志
+        logger.info(f"检查任务状态: {task_id}, 状态: {progress.status.value}, 进度: {progress.progress_percentage:.1f}%")
+        
+        # 特殊处理：如果任务有文件路径且文件存在，但状态不是COMPLETED，尝试修复
+        if (progress.status != TaskStatus.COMPLETED and 
+            progress.file_path and 
+            os.path.exists(progress.file_path)):
+            logger.warning(f"发现状态异常的任务，尝试修复: {task_id}, 当前状态: {progress.status.value}")
+            success = progress_tracker.force_complete_task(task_id, progress.file_path)
+            if success:
+                # 重新获取进度信息
+                progress = progress_tracker.get_progress(task_id)
+                logger.info(f"任务状态已修复: {task_id}, 新状态: {progress.status.value}")
+        
         # 未完成返回适当的状态码和消息，而不是JSON数据
         if progress.status not in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
+            logger.warning(f"任务 {task_id} 尚未完成，当前状态: {progress.status.value}")
             return JSONResponse(
                 status_code=202, 
                 content={
@@ -370,11 +389,16 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
             )
         
         if progress.status == TaskStatus.FAILED:
+            logger.error(f"任务 {task_id} 已失败: {progress.error_message}")
             return JSONResponse(status_code=500, content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()})
         
+        # 任务已完成，检查文件是否存在
         file_path = progress.file_path
         if not file_path or not os.path.exists(file_path):
+            logger.error(f"任务 {task_id} 已完成但文件不存在: {file_path}")
             return JSONResponse(status_code=500, content={"code": 500, "message": "文件不存在或尚未生成", "data": progress.to_dict()})
+        
+        logger.info(f"返回已完成任务的文件: {task_id} -> {file_path}")
         
         file_obj = Path(file_path)
         filename = file_obj.name
@@ -536,6 +560,152 @@ async def get_timeout_monitor_stats():
             content={
                 "code": 500,
                 "message": f"获取超时监控统计失败: {str(e)}",
+                "data": None,
+            },
+        )
+
+
+@router.get("/debug/task")
+async def debug_task_status(task_id: str = Query(..., description="下载任务ID")):
+    """
+    调试端点：获取任务的详细状态信息
+    用于排查任务状态异常问题
+    """
+    try:
+        from app.utils.progress_tracker import progress_tracker, TaskStatus
+        from app.utils.timeout_monitor import timeout_monitor
+        
+        progress = progress_tracker.get_progress(task_id)
+        if not progress:
+            return JSONResponse(
+                status_code=404, 
+                content={
+                    "code": 404, 
+                    "message": f"任务不存在: {task_id}", 
+                    "data": None
+                }
+            )
+        
+        # 获取所有任务信息
+        all_tasks = progress_tracker.get_all_tasks()
+        
+        # 获取超时监控信息
+        monitor_info = None
+        try:
+            # 检查timeout_monitor中是否有这个任务
+            if hasattr(timeout_monitor, 'monitored_tasks'):
+                monitor_info = timeout_monitor.monitored_tasks.get(task_id)
+        except Exception as e:
+            logger.warning(f"获取超时监控信息失败: {str(e)}")
+        
+        debug_data = {
+            "task_id": task_id,
+            "progress_info": progress.to_dict(),
+            "raw_status": progress.status.value,
+            "raw_progress": progress.progress_percentage,
+            "file_exists": os.path.exists(progress.file_path) if progress.file_path else False,
+            "file_path": progress.file_path,
+            "total_tasks_count": len(all_tasks),
+            "monitor_info": monitor_info,
+            "task_in_monitor": task_id in (timeout_monitor.monitored_tasks if hasattr(timeout_monitor, 'monitored_tasks') else {}),
+        }
+        
+        return {"code": 200, "message": "debug_info", "data": debug_data}
+        
+    except Exception as e:
+        logger.error(f"调试任务状态失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"调试失败: {str(e)}",
+                "data": None,
+            },
+        )
+
+
+@router.get("/debug/tasks")
+async def debug_all_tasks():
+    """
+    调试端点：获取所有任务的状态信息
+    用于排查任务管理问题
+    """
+    try:
+        from app.utils.progress_tracker import progress_tracker
+        
+        all_tasks = progress_tracker.get_all_tasks()
+        
+        tasks_data = []
+        for task_id, progress in all_tasks.items():
+            task_data = progress.to_dict()
+            task_data["file_exists"] = os.path.exists(progress.file_path) if progress.file_path else False
+            tasks_data.append(task_data)
+        
+        return {
+            "code": 200, 
+            "message": "success", 
+            "data": {
+                "total_tasks": len(tasks_data),
+                "tasks": tasks_data
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"获取所有任务状态失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"调试失败: {str(e)}",
+                "data": None,
+            },
+        )
+
+
+@router.post("/debug/recover-tasks")
+async def recover_broken_tasks():
+    """
+    调试端点：恢复状态异常的任务
+    检查所有任务，如果发现有文件但状态不正确的任务，自动修复
+    """
+    try:
+        from app.utils.progress_tracker import progress_tracker, TaskStatus
+        
+        all_tasks = progress_tracker.get_all_tasks()
+        recovered_tasks = []
+        
+        for task_id, progress in all_tasks.items():
+            # 检查是否有文件但状态不是COMPLETED的任务
+            if (progress.status != TaskStatus.COMPLETED and 
+                progress.file_path and 
+                os.path.exists(progress.file_path)):
+                
+                logger.info(f"发现需要恢复的任务: {task_id}, 状态: {progress.status.value}")
+                success = progress_tracker.force_complete_task(task_id, progress.file_path)
+                if success:
+                    recovered_tasks.append({
+                        "task_id": task_id,
+                        "old_status": progress.status.value,
+                        "new_status": "completed",
+                        "file_path": progress.file_path
+                    })
+        
+        return {
+            "code": 200, 
+            "message": "recovery_completed", 
+            "data": {
+                "recovered_count": len(recovered_tasks),
+                "recovered_tasks": recovered_tasks
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"恢复任务状态失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"恢复失败: {str(e)}",
                 "data": None,
             },
         )
