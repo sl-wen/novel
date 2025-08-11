@@ -38,11 +38,11 @@ class DownloadConfig:
     progress_callback: Optional[callable] = None
 
 
-class EnhancedCrawler:
-    """增强版爬虫，提供更稳定的下载功能"""
+class Crawler:
+    """爬虫，提供稳定的下载功能"""
 
     def __init__(self, config=None):
-        """初始化增强版爬虫
+        """初始化爬虫
 
         Args:
             config: 下载配置
@@ -114,8 +114,8 @@ class EnhancedCrawler:
             else:
                 existing_chapters = {}
 
-            # 5. 下载章节（增强版）
-            chapters = await self._download_chapters_enhanced(
+            # 5. 下载章节
+            chapters = await self._download_chapters(
                 toc, source_id, existing_chapters, download_dir, task_id
             )
 
@@ -262,7 +262,7 @@ class EnhancedCrawler:
                 existing[safe_filename] = str(file_path)
         return existing
 
-    async def _download_chapters_enhanced(
+    async def _download_chapters(
         self,
         toc: List[ChapterInfo],
         source_id: int,
@@ -270,7 +270,7 @@ class EnhancedCrawler:
         download_dir: Path,
         task_id: Optional[str] = None,
     ) -> List[Chapter]:
-        """增强版章节下载"""
+        """章节下载"""
         self.monitor.start_download(len(toc))
 
         source = Source(source_id)
@@ -295,7 +295,7 @@ class EnhancedCrawler:
                 logger.info(f"跳过已存在章节: {chapter_info.title}")
                 return None
             async with semaphore:
-                result = await self._download_single_chapter_enhanced(
+                result = await self._download_single_chapter(
                     parser, chapter_info, temp_dir
                 )
                 if result:
@@ -346,10 +346,10 @@ class EnhancedCrawler:
 
         return chapters
 
-    async def _download_single_chapter_enhanced(
+    async def _download_single_chapter(
         self, parser: ChapterParser, chapter_info: ChapterInfo, temp_dir: Path
     ) -> Optional[Chapter]:
-        """增强版单章节下载"""
+        """单章节下载"""
         # 使用安全的文件名
         safe_filename = FileUtils.sanitize_filename(chapter_info.title)
         chapter_file = temp_dir / f"{safe_filename}.txt"

@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.core.config import settings
 from app.models.search import SearchResponse
-from app.services.optimized_novel_service import OptimizedNovelService
+from app.services.novel_service import NovelService
 from app.utils.cache_manager import cache_manager
 from app.utils.enhanced_http_client import http_client
 from app.utils.performance_monitor import monitor_performance, performance_monitor
@@ -17,15 +17,15 @@ from app.utils.performance_monitor import monitor_performance, performance_monit
 logger = logging.getLogger(__name__)
 
 # 创建路由
-router = APIRouter(prefix="/optimized", tags=["optimized-novels"])
+router = APIRouter(prefix="/optimized", tags=["novels"])
 
-# 创建优化版服务实例
-optimized_service = OptimizedNovelService()
+# 创建服务实例
+novel_service = NovelService()
 
 
 @router.get("/search", response_model=SearchResponse)
-@monitor_performance("optimized_search")
-async def optimized_search_novels(
+@monitor_performance("search")
+async def search_novels(
     request: Request,
     keyword: str = Query(None, description="搜索关键词（书名或作者名）"),
     maxResults: int = Query(
@@ -36,9 +36,9 @@ async def optimized_search_novels(
     ),
 ):
     """
-    优化版小说搜索API
+    小说搜索API
 
-    优化特性:
+    特性:
     - 智能缓存：自动缓存搜索结果
     - 并发搜索：同时搜索多个书源
     - 超时控制：避免长时间等待
@@ -54,10 +54,10 @@ async def optimized_search_novels(
         async with performance_monitor.monitor_operation(
             "search_novels", {"keyword": keyword, "max_results": maxResults}
         ):
-            logger.info(f"开始优化搜索，关键词：{keyword}，maxResults={maxResults}")
+            logger.info(f"开始搜索，关键词：{keyword}，maxResults={maxResults}")
 
-            # 使用优化版搜索服务
-            results = await optimized_service.optimized_search(
+            # 使用搜索服务
+            results = await novel_service.search(
                 keyword, max_results=maxResults
             )
 
@@ -65,7 +65,7 @@ async def optimized_search_novels(
             duration_ms = (end_time - start_time) * 1000
 
             logger.info(
-                f"优化搜索完成，找到 {len(results)} 条结果，耗时 {duration_ms:.1f}ms"
+                f"搜索完成，找到 {len(results)} 条结果，耗时 {duration_ms:.1f}ms"
             )
 
             return {
@@ -80,7 +80,7 @@ async def optimized_search_novels(
             }
 
     except Exception as e:
-        logger.error(f"优化搜索失败: {str(e)}")
+        logger.error(f"搜索失败: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={
@@ -96,15 +96,15 @@ async def optimized_search_novels(
 
 
 @router.get("/detail")
-@monitor_performance("optimized_get_detail")
-async def optimized_get_novel_detail(
+@monitor_performance("get_detail")
+async def get_novel_detail(
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
 ):
     """
-    优化版获取小说详情API
+    获取小说详情API
 
-    优化特性:
+    特性:
     - 智能缓存：缓存书籍详情
     - 快速响应：优化网络请求
     - 错误重试：自动重试失败请求
@@ -117,7 +117,7 @@ async def optimized_get_novel_detail(
         ):
             logger.info(f"开始获取小说详情，URL：{url}，书源ID：{sourceId}")
 
-            book = await optimized_service.get_book_detail(url, sourceId)
+            book = await novel_service.get_book_detail(url, sourceId)
 
             if not book:
                 raise HTTPException(status_code=404, detail="未找到小说详情")
@@ -153,15 +153,15 @@ async def optimized_get_novel_detail(
 
 
 @router.get("/toc")
-@monitor_performance("optimized_get_toc")
-async def optimized_get_novel_toc(
+@monitor_performance("get_toc")
+async def get_novel_toc(
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
 ):
     """
-    优化版获取小说目录API
+    获取小说目录API
 
-    优化特性:
+    特性:
     - 智能缓存：缓存目录信息
     - 并发处理：快速解析目录
     - 数据验证：验证目录完整性
@@ -174,7 +174,7 @@ async def optimized_get_novel_toc(
         ):
             logger.info(f"开始获取小说目录，URL：{url}，书源ID：{sourceId}")
 
-            toc = await optimized_service.get_toc(url, sourceId)
+            toc = await novel_service.get_toc(url, sourceId)
 
             end_time = time.time()
             duration_ms = (end_time - start_time) * 1000
@@ -209,17 +209,17 @@ async def optimized_get_novel_toc(
 
 
 @router.get("/download")
-@monitor_performance("optimized_download")
-async def optimized_download_novel(
+@monitor_performance("download")
+async def download_novel(
     background_tasks: BackgroundTasks,
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
     format: str = Query("txt", description="下载格式，支持txt、epub"),
 ):
     """
-    优化版小说下载API
+    小说下载API
 
-    优化特性:
+    特性:
     - 智能并发：优化章节下载并发数
     - 断点续传：支持下载恢复
     - 进度跟踪：实时跟踪下载进度
@@ -243,10 +243,10 @@ async def optimized_download_novel(
             "download_novel",
             {"url": url, "source_id": sourceId, "format": format, "task_id": task_id},
         ):
-            logger.info(f"开始优化下载，URL：{url}，书源ID：{sourceId}，格式：{format}")
+            logger.info(f"开始下载，URL：{url}，书源ID：{sourceId}，格式：{format}")
 
-            # 使用优化版下载服务
-            file_path = await optimized_service.optimized_download(
+            # 使用下载服务
+            file_path = await novel_service.download(
                 url, sourceId, format, task_id
             )
 
@@ -258,7 +258,7 @@ async def optimized_download_novel(
             file_size = os.path.getsize(file_path)
 
             logger.info(
-                f"优化下载完成，文件：{file_path}，大小：{file_size} 字节，耗时 {duration_ms:.1f}ms"
+                f"下载完成，文件：{file_path}，大小：{file_size} 字节，耗时 {duration_ms:.1f}ms"
             )
 
             # 设置清理任务
@@ -294,7 +294,7 @@ async def optimized_download_novel(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"优化下载失败: {str(e)}")
+        logger.error(f"下载失败: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={
@@ -311,11 +311,11 @@ async def optimized_download_novel(
 
 @router.get("/sources")
 @monitor_performance("get_sources")
-async def get_optimized_sources():
+async def get_sources():
     """
-    获取所有书源信息（优化版）
+    获取所有书源信息
 
-    优化特性:
+    特性:
     - 智能缓存：缓存书源列表
     - 状态检测：显示书源可用状态
     """
@@ -325,7 +325,7 @@ async def get_optimized_sources():
         async with performance_monitor.monitor_operation("get_sources"):
             logger.info("开始获取书源列表")
 
-            sources = await optimized_service.get_sources()
+            sources = await novel_service.get_sources()
 
             end_time = time.time()
             duration_ms = (end_time - start_time) * 1000
@@ -441,16 +441,16 @@ async def clear_cache():
 
 
 @router.post("/download/start")
-@monitor_performance("optimized_download_start")
-async def optimized_start_download(
+@monitor_performance("download_start")
+async def start_download(
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
     format: str = Query("txt", description="下载格式，支持txt、epub"),
 ):
     """
-    优化版启动异步下载任务，立即返回任务ID
+    启动异步下载任务，立即返回任务ID
     
-    优化特性:
+    特性:
     - 任务管理：智能任务调度
     - 进度跟踪：实时下载进度
     - 错误处理：完善的错误恢复
@@ -463,45 +463,45 @@ async def optimized_start_download(
         task_id = str(uuid.uuid4())
         progress_tracker.create_task(total_chapters=0, task_id=task_id)
         progress_tracker.start_task(task_id)
-        logger.info(f"启动优化下载任务: {task_id} ({url}, source={sourceId}, format={format})")
+        logger.info(f"启动下载任务: {task_id} ({url}, source={sourceId}, format={format})")
         
-        async def run_optimized_download():
+        async def run_download():
             try:
-                file_path = await optimized_service.optimized_download(url, sourceId, format, task_id=task_id)
+                file_path = await novel_service.download(url, sourceId, format, task_id=task_id)
                 if file_path:
                     progress_tracker.set_file_path(task_id, file_path)
                     progress_tracker.complete_task(task_id, True)
                 else:
                     progress_tracker.complete_task(task_id, False, "文件生成失败")
             except Exception as e:
-                logger.error(f"优化版后台下载任务失败: {str(e)}")
+                logger.error(f"后台下载任务失败: {str(e)}")
                 progress_tracker.complete_task(task_id, False, str(e))
         
         # 后台执行
         import asyncio
-        asyncio.create_task(run_optimized_download())
+        asyncio.create_task(run_download())
         
         return {"code": 202, "message": "accepted", "data": {"task_id": task_id}}
     except Exception as e:
-        logger.error(f"启动优化下载任务失败: {str(e)}")
+        logger.error(f"启动下载任务失败: {str(e)}")
         return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
 
 
 @router.get("/download/progress")
-@monitor_performance("optimized_download_progress")
-async def optimized_get_download_progress(
+@monitor_performance("download_progress")
+async def get_download_progress(
     task_id: str = Query(..., description="下载任务ID")
 ):
     """
-    获取优化版下载进度
+    获取下载进度
     
-    优化特性:
+    特性:
     - 详细进度：章节级别的进度信息
     - 性能指标：下载速度和质量统计
     - 错误信息：详细的错误诊断
     """
     try:
-        logger.info(f"获取优化下载进度，任务ID：{task_id}")
+        logger.info(f"获取下载进度，任务ID：{task_id}")
         
         from app.utils.progress_tracker import progress_tracker
         
@@ -518,7 +518,7 @@ async def optimized_get_download_progress(
         
         return {"code": 200, "message": "success", "data": progress.to_dict()}
     except Exception as e:
-        logger.error(f"获取优化下载进度失败: {str(e)}")
+        logger.error(f"获取下载进度失败: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={
@@ -530,12 +530,12 @@ async def optimized_get_download_progress(
 
 
 @router.get("/download/result")
-@monitor_performance("optimized_download_result")
-async def optimized_get_download_result(task_id: str = Query(..., description="下载任务ID")):
+@monitor_performance("download_result")
+async def get_download_result(task_id: str = Query(..., description="下载任务ID")):
     """
-    获取优化版已完成任务的文件（若未完成则返回状态）
+    获取已完成任务的文件（若未完成则返回状态）
     
-    优化特性:
+    特性:
     - 流式传输：高效的文件传输
     - 智能缓存：避免重复传输
     - 自动清理：防止磁盘空间浪费
@@ -584,7 +584,7 @@ async def optimized_get_download_result(task_id: str = Query(..., description="�
             },
         )
     except Exception as e:
-        logger.error(f"获取优化下载结果失败: {str(e)}")
+        logger.error(f"获取下载结果失败: {str(e)}")
         return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
 
 

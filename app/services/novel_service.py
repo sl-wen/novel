@@ -26,11 +26,11 @@ from app.utils.file import FileUtils
 logger = logging.getLogger(__name__)
 
 
-class OptimizedNovelService:
-    """优化版小说服务类，提供高性能的搜索、获取详情、获取目录和下载功能"""
+class NovelService:
+    """小说服务类，提供高性能的搜索、获取详情、获取目录和下载功能"""
 
     def __init__(self):
-        """初始化优化版服务"""
+        """初始化服务"""
         self.sources = {}
         self._load_sources()
         self.monitor = DownloadMonitor()
@@ -145,10 +145,10 @@ class OptimizedNovelService:
             f"书源验证完成: {len(available_sources)} 个可用, {len(unavailable_sources)} 个不可用"
         )
 
-    async def optimized_search(
+    async def search(
         self, keyword: str, max_results: int = 30
     ) -> List[SearchResult]:
-        """优化版搜索小说
+        """搜索小说
 
         优化点:
         1. 使用缓存减少重复搜索
@@ -388,14 +388,14 @@ class OptimizedNovelService:
 
         return score
 
-    async def optimized_download(
+    async def download(
         self,
         url: str,
         source_id: int,
         format: str = "txt",
         task_id: Optional[str] = None,
     ) -> str:
-        """优化版下载小说
+        """下载小说
 
         优化点:
         1. 智能并发控制
@@ -416,15 +416,15 @@ class OptimizedNovelService:
         start_time = time.time()
 
         try:
-            # 使用优化的增强爬虫
-            from app.core.enhanced_crawler import EnhancedCrawler
+            # 使用爬虫
+            from app.core.crawler import Crawler
 
-            # 创建优化配置
-            optimized_config = self._create_optimized_download_config()
+            # 创建下载配置
+            download_config = self._create_download_config()
             # 使用全局 settings 作为通用配置（包含 DOWNLOAD_PATH 等路径）
-            crawler = EnhancedCrawler(settings)
+            crawler = Crawler(settings)
             # 覆盖下载相关配置到 crawler
-            crawler.download_config = optimized_config
+            crawler.download_config = download_config
 
             return await crawler.download(url, source_id, format, task_id)
 
@@ -432,9 +432,9 @@ class OptimizedNovelService:
             logger.error(f"优化下载失败: {str(e)}")
             raise
 
-    def _create_optimized_download_config(self):
-        """创建优化的下载配置"""
-        from app.core.enhanced_crawler import DownloadConfig
+    def _create_download_config(self):
+        """创建下载配置"""
+        from app.core.crawler import DownloadConfig
 
         config = DownloadConfig()
         # 提升并发与整体吞吐
