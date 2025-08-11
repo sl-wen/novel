@@ -495,7 +495,7 @@ class EnhancedCrawler:
         from app.utils.epub_generator import EPUBGenerator
 
         # 生成安全的文件名
-        safe_filename = FileUtils.get_safe_filename(f"{book.title}_{book.author}")
+        safe_filename = FileUtils.sanitize_filename(f"{book.title}_{book.author}")
         epub_path = download_dir / f"{safe_filename}.epub"
 
         def generate_epub():
