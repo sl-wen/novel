@@ -99,23 +99,94 @@ class EnhancedHttpClient:
     async def _cleanup_expired_sessions(self):
         """清理过期的会话"""
         current_time = time.time()
-        expired_keys = []
-
+        expired_sessions = []
+        
         async with self.session_lock:
-            for key, last_used in self.session_last_used.items():
+            for host, last_used in list(self.session_last_used.items()):
                 if current_time - last_used > self.session_timeout:
-                    expired_keys.append(key)
-
-            for key in expired_keys:
-                if key in self.session_cache:
-                    session = self.session_cache[key]
+                    expired_sessions.append(host)
+            
+            for host in expired_sessions:
+                session = self.session_cache.pop(host, None)
+                if session and not session.closed:
                     await session.close()
-                    del self.session_cache[key]
-                    del self.session_last_used[key]
-                    logger.debug(f"清理过期会话: {key}")
-
-        if expired_keys:
-            logger.info(f"清理了 {len(expired_keys)} 个过期会话")
+                    logger.debug(f"清理过期会话: {host}")
+                self.session_last_used.pop(host, None)
+    
+    async def check_network_connectivity(self, test_urls: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        检查网络连接状态
+        
+        Args:
+            test_urls: 测试URL列表，默认使用常见的测试站点
+            
+        Returns:
+            网络连接状态信息
+        """
+        if test_urls is None:
+            test_urls = [
+                "https://www.baidu.com",
+                "https://httpbin.org/get",
+                "https://www.google.com"
+            ]
+        
+        connectivity_results = {
+            "overall_status": "unknown",
+            "test_results": [],
+            "successful_connections": 0,
+            "total_tests": len(test_urls),
+            "average_response_time": 0.0
+        }
+        
+        total_response_time = 0.0
+        
+        for url in test_urls:
+            start_time = time.time()
+            try:
+                # 使用短超时进行连接测试
+                timeout = ClientTimeout(total=10, connect=5)
+                connector = TCPConnector(ssl=False)
+                
+                async with ClientSession(timeout=timeout, connector=connector) as session:
+                    async with session.head(url) as response:
+                        response_time = time.time() - start_time
+                        total_response_time += response_time
+                        
+                        connectivity_results["test_results"].append({
+                            "url": url,
+                            "status": "success",
+                            "response_code": response.status,
+                            "response_time": round(response_time, 3)
+                        })
+                        
+                        if response.status < 400:
+                            connectivity_results["successful_connections"] += 1
+                            
+            except Exception as e:
+                response_time = time.time() - start_time
+                connectivity_results["test_results"].append({
+                    "url": url,
+                    "status": "failed",
+                    "error": str(e),
+                    "response_time": round(response_time, 3)
+                })
+        
+        # 计算整体状态
+        success_rate = connectivity_results["successful_connections"] / connectivity_results["total_tests"]
+        if success_rate >= 0.8:
+            connectivity_results["overall_status"] = "good"
+        elif success_rate >= 0.5:
+            connectivity_results["overall_status"] = "poor"
+        else:
+            connectivity_results["overall_status"] = "failed"
+        
+        # 计算平均响应时间
+        if connectivity_results["successful_connections"] > 0:
+            connectivity_results["average_response_time"] = round(
+                total_response_time / connectivity_results["successful_connections"], 3
+            )
+        
+        return connectivity_results
 
     def _get_session_key(self, url: str) -> str:
         """生成会话键"""

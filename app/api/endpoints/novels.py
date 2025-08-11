@@ -247,13 +247,30 @@ async def get_download_progress(
         
         return {"code": 200, "message": "success", "data": result_data}
     except Exception as e:
-        logger.error(f"获取下载进度失败: {str(e)}")
+        error_msg = str(e)
+        logger.error(f"获取下载进度失败: {error_msg}")
+        
+        # 提供更友好的错误信息
+        if "timeout" in error_msg.lower():
+            user_message = "下载失败: 连接超时，请检查网络连接或稍后重试"
+        elif "connection" in error_msg.lower():
+            user_message = "下载失败: 网络连接失败，请检查网络连接或稍后重试"
+        elif "任务不存在" in error_msg:
+            user_message = "下载失败: 任务已过期或不存在，请重新开始下载"
+        else:
+            user_message = f"获取下载进度失败: {error_msg}"
+        
         return JSONResponse(
             status_code=500,
             content={
                 "code": 500,
-                "message": f"获取下载进度失败: {str(e)}",
-                "data": None,
+                "message": user_message,
+                "data": {
+                    "error_type": "progress_query_failure",
+                    "original_error": error_msg,
+                    "task_id": task_id,
+                    "suggestion": "请检查网络连接，或尝试重新开始下载任务"
+                },
             },
         )
 
@@ -525,13 +542,32 @@ async def get_download_progress_smart(
                 )
         
     except Exception as e:
-        logger.error(f"智能轮询下载进度失败: {str(e)}")
+        error_msg = str(e)
+        logger.error(f"智能轮询下载进度失败: {error_msg}")
+        
+        # 提供更友好的错误信息
+        if "wait_for_completion" in error_msg:
+            user_message = "下载失败: 连续查询失败，请检查网络连接或稍后重试"
+        elif "timeout" in error_msg.lower():
+            user_message = "下载失败: 连接超时，请检查网络连接或稍后重试"
+        elif "connection" in error_msg.lower():
+            user_message = "下载失败: 网络连接失败，请检查网络连接或稍后重试"
+        elif "任务不存在" in error_msg:
+            user_message = "下载失败: 任务已过期或不存在，请重新开始下载"
+        else:
+            user_message = f"下载失败: {error_msg}"
+        
         return JSONResponse(
             status_code=500,
             content={
                 "code": 500,
-                "message": f"智能轮询失败: {str(e)}",
-                "data": None,
+                "message": user_message,
+                "data": {
+                    "error_type": "polling_failure",
+                    "original_error": error_msg,
+                    "task_id": task_id,
+                    "suggestion": "请检查网络连接，或尝试重新开始下载任务"
+                },
             },
         )
 
@@ -743,6 +779,78 @@ async def get_sources():
             content={
                 "code": 500,
                 "message": f"获取书源信息失败: {str(e)}",
+                "data": None,
+            },
+        )
+
+
+@router.get("/debug/network")
+async def check_network_connectivity():
+    """
+    网络连接诊断端点
+    检查网络连接状态，帮助诊断下载失败问题
+    """
+    try:
+        from app.utils.enhanced_http_client import http_client
+        
+        logger.info("开始网络连接诊断")
+        connectivity_results = await http_client.check_network_connectivity()
+        
+        # 添加书源连接测试
+        book_sources_test = []
+        try:
+            sources = novel_service.get_sources()
+            test_source_urls = []
+            for source in sources[:3]:  # 测试前3个书源
+                if 'url' in source and source['url']:
+                    test_source_urls.append(source['url'])
+            
+            if test_source_urls:
+                source_connectivity = await http_client.check_network_connectivity(test_source_urls)
+                book_sources_test = source_connectivity["test_results"]
+        except Exception as e:
+            logger.warning(f"书源连接测试失败: {str(e)}")
+        
+        result_data = {
+            "general_connectivity": connectivity_results,
+            "book_sources_connectivity": book_sources_test,
+            "diagnosis": {
+                "network_status": connectivity_results["overall_status"],
+                "recommendations": []
+            }
+        }
+        
+        # 添加诊断建议
+        if connectivity_results["overall_status"] == "failed":
+            result_data["diagnosis"]["recommendations"].extend([
+                "网络连接完全失败，请检查网络设置",
+                "确认防火墙或代理设置是否阻止了连接",
+                "尝试重启网络连接或联系网络管理员"
+            ])
+        elif connectivity_results["overall_status"] == "poor":
+            result_data["diagnosis"]["recommendations"].extend([
+                "网络连接不稳定，建议稍后重试",
+                "考虑增加下载超时时间",
+                "检查网络带宽是否充足"
+            ])
+        elif connectivity_results["average_response_time"] > 5.0:
+            result_data["diagnosis"]["recommendations"].append(
+                "网络响应较慢，建议增加超时设置或稍后重试"
+            )
+        else:
+            result_data["diagnosis"]["recommendations"].append(
+                "网络连接正常，如果仍有下载问题，可能是书源服务器问题"
+            )
+        
+        return {"code": 200, "message": "success", "data": result_data}
+        
+    except Exception as e:
+        logger.error(f"网络连接诊断失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"网络诊断失败: {str(e)}",
                 "data": None,
             },
         )
