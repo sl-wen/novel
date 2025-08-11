@@ -180,7 +180,27 @@ python run.py
 #### 异步下载任务（推荐用于长文本）
 - 启动任务：`POST /api/novels/download/start`（返回 `task_id`）
 - 查询进度：`GET /api/novels/download/progress?task_id=...`
-- 拉取结果：`GET /api/novels/download/result?task_id=...`（完成后返回文件流）
+- 拉取结果：`GET /api/novels/download/result?task_id=...`（**仅在任务完成后**返回文件流）
+
+**重要提醒**：
+- 必须等待任务状态变为 `completed` 后才能调用 `/download/result` 获取文件
+- 如果任务未完成就调用 `/download/result`，会返回 202 状态码而不是文件
+- 建议使用智能轮询 `/download/progress/smart` 等待任务完成
+
+**正确的使用流程：**
+```bash
+# 1. 启动下载任务
+POST /api/novels/download/start?url=小说URL&sourceId=1&format=txt
+# 返回：{"code": 202, "data": {"task_id": "xxx"}}
+
+# 2. 等待任务完成（智能轮询，推荐）
+GET /api/novels/download/progress/smart?task_id=xxx&timeout=300
+# 返回：任务完成时 status 为 "completed"
+
+# 3. 下载文件（仅在任务完成后）
+GET /api/novels/download/result?task_id=xxx
+# 返回：文件流下载
+```
 
 进度数据包含任务状态、完成章节数、错误信息、生成文件路径等。
 

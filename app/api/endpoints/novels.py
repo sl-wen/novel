@@ -336,7 +336,15 @@ async def start_download(
 
 @router.get("/download/result")
 async def get_download_result(task_id: str = Query(..., description="下载任务ID")):
-    """获取已完成任务的文件（若未完成则返回状态）"""
+    """
+    获取已完成任务的下载文件
+    
+    注意：
+    - 只有任务状态为 'completed' 时才返回文件流
+    - 任务未完成时返回 202 状态码和进度信息
+    - 任务失败时返回 500 状态码和错误信息
+    - 建议先通过 /download/progress 确认任务完成后再调用此接口
+    """
     try:
         from app.utils.progress_tracker import progress_tracker
         from fastapi.responses import StreamingResponse
@@ -347,11 +355,21 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         if not progress:
             return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
         
-        # 未完成直接返回状态
-        if progress.status not in [progress.status.COMPLETED, progress.status.FAILED]:
-            return {"code": 200, "message": "running", "data": progress.to_dict()}
+        # 导入TaskStatus枚举
+        from app.utils.progress_tracker import TaskStatus
         
-        if progress.status == progress.status.FAILED:
+        # 未完成返回适当的状态码和消息，而不是JSON数据
+        if progress.status not in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
+            return JSONResponse(
+                status_code=202, 
+                content={
+                    "code": 202, 
+                    "message": f"任务还在进行中，状态：{progress.status.value}，进度：{progress.progress_percentage:.1f}%", 
+                    "data": None
+                }
+            )
+        
+        if progress.status == TaskStatus.FAILED:
             return JSONResponse(status_code=500, content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()})
         
         file_path = progress.file_path
@@ -421,7 +439,8 @@ async def get_download_progress_smart(
         
         # 定义完成检查函数
         def is_completed(progress):
-            return progress.status in ["completed", "failed", "cancelled"]
+            from app.utils.progress_tracker import TaskStatus
+            return progress.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]
         
         # 启动智能轮询
         try:
