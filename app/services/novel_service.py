@@ -704,7 +704,8 @@ class NovelService:
         self.monitor.start_download(len(toc))
 
         chapter_parser = ChapterParser(source)
-        chapters = []
+        # 使用字典按order存储章节，确保顺序正确
+        chapters_dict = {}
         failed_chapters = []
 
         # 并发控制参数
@@ -749,7 +750,8 @@ class NovelService:
                     self.monitor.chapter_completed(
                         chapter_info.title, len(result.content), quality_score
                     )
-                    chapters.append(result)
+                    # 使用字典存储，保证按order排序
+                    chapters_dict[chapter_info.order] = result
                     logger.debug(
                         f"章节下载成功: {result.title} ({len(result.content)} 字符, 质量评分: {quality_score:.2f})"
                     )
@@ -762,6 +764,9 @@ class NovelService:
             # 批次间延迟，避免请求过于频繁
             if i + max_concurrent < len(toc):
                 await asyncio.sleep(settings.DOWNLOAD_BATCH_DELAY)
+
+        # 按order顺序转换为列表
+        chapters = [chapters_dict[order] for order in sorted(chapters_dict.keys())]
 
         logger.info(
             f"章节下载完成: 成功 {len(chapters)} 章，失败 {len(failed_chapters)} 章"
@@ -879,7 +884,8 @@ class NovelService:
         Returns:
             文件路径
         """
-        chapters.sort(key=lambda x: x.order)
+        # 确保章节按order排序
+        sorted_chapters = sorted(chapters, key=lambda x: x.order or 0)
 
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(f"书名: {book.title}\n")
@@ -892,7 +898,7 @@ class NovelService:
             f.write(f"字数: {book.word_count}\n")
             f.write("\n" + "=" * 50 + "\n\n")
 
-            for chapter in chapters:
+            for chapter in sorted_chapters:
                 f.write(f"\n\n{chapter.title}\n\n")
                 f.write(chapter.content)
 
@@ -915,7 +921,8 @@ class NovelService:
         try:
             from ebooklib import epub
 
-            chapters.sort(key=lambda x: x.order)
+            # 确保章节按order排序
+            sorted_chapters = sorted(chapters, key=lambda x: x.order or 0)
 
             # 创建EPUB书籍
             epub_book = epub.EpubBook()
@@ -931,9 +938,9 @@ class NovelService:
             if book.intro:
                 epub_book.add_metadata("DC", "description", book.intro)
 
-            # 添加章节
+            # 添加章节，使用排序后的章节列表
             epub_chapters = []
-            for chapter in chapters:
+            for chapter in sorted_chapters:
                 epub_chapter = epub.EpubHtml(
                     title=chapter.title,
                     file_name=f"chapter_{chapter.order}.xhtml",

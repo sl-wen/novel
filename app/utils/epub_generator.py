@@ -36,6 +36,9 @@ class EPUBGenerator:
             # 确保输出目录存在
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
+            # 确保章节按order排序
+            sorted_chapters = sorted(chapters, key=lambda x: x.order or 0)
+
             with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as epub_zip:
                 # 1. 添加mimetype文件
                 self._add_mimetype(epub_zip)
@@ -44,13 +47,13 @@ class EPUBGenerator:
                 self._add_container_xml(epub_zip)
 
                 # 3. 添加内容文件
-                self._add_content_opf(epub_zip, book, chapters)
+                self._add_content_opf(epub_zip, book, sorted_chapters)
 
                 # 4. 添加目录文件
-                self._add_toc_ncx(epub_zip, book, chapters)
+                self._add_toc_ncx(epub_zip, book, sorted_chapters)
 
                 # 5. 添加章节HTML文件
-                self._add_chapter_files(epub_zip, chapters)
+                self._add_chapter_files(epub_zip, sorted_chapters)
 
                 # 6. 添加样式文件
                 self._add_stylesheet(epub_zip)

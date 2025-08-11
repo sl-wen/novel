@@ -274,7 +274,8 @@ class EnhancedCrawler:
 
         source = Source(source_id)
         parser = ChapterParser(source)
-        chapters = []
+        # 使用字典按order存储章节，确保顺序正确
+        chapters_dict = {}
         self.failed_chapters = []
 
         # 创建临时目录（按书籍隔离，避免内容混淆）
@@ -297,16 +298,17 @@ class EnhancedCrawler:
                     parser, chapter_info, temp_dir
                 )
                 if result:
-                    chapters.append(result)
+                    # 使用字典存储，保证按order排序
+                    chapters_dict[chapter_info.order] = result
                     # 更新进度
                     if self.download_config.progress_callback:
-                        self.download_config.progress_callback(len(chapters), len(toc))
+                        self.download_config.progress_callback(len(chapters_dict), len(toc))
                     if task_id:
                         from app.utils.progress_tracker import progress_tracker
 
                         progress_tracker.update_progress(
                             task_id,
-                            len(chapters),
+                            len(chapters_dict),
                             result.title,
                             len(self.failed_chapters),
                         )
@@ -319,20 +321,34 @@ class EnhancedCrawler:
         if self.failed_chapters:
             logger.info(f"重试失败的 {len(self.failed_chapters)} 个章节")
             retry_chapters = await self._retry_failed_chapters(parser, temp_dir)
-            chapters.extend(retry_chapters)
+            # 将重试成功的章节也按order存储
+            for chapter in retry_chapters:
+                if chapter.order:
+                    chapters_dict[chapter.order] = chapter
 
-        # 从现有文件加载章节
+        # 从现有文件加载章节，需要找到对应的order
         for title, file_path in existing_chapters.items():
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
-                    chapter = Chapter(title=title, content=content, order=0)
-                    chapters.append(chapter)
+                    # 在toc中查找对应的order
+                    chapter_order = None
+                    for chapter_info in toc:
+                        if chapter_info.title == title:
+                            chapter_order = chapter_info.order
+                            break
+                    
+                    if chapter_order is None:
+                        # 如果找不到对应的order，使用一个大的数字放在最后
+                        chapter_order = len(toc) + len(existing_chapters)
+                    
+                    chapter = Chapter(title=title, content=content, order=chapter_order)
+                    chapters_dict[chapter_order] = chapter
             except Exception as e:
                 logger.warning(f"加载已存在章节失败 {title}: {str(e)}")
 
-        # 按顺序排序
-        chapters.sort(key=lambda x: x.order or 0)
+        # 按order顺序转换为列表
+        chapters = [chapters_dict[order] for order in sorted(chapters_dict.keys())]
 
         return chapters
 
@@ -409,11 +425,12 @@ class EnhancedCrawler:
 
                 # 使用更长的超时时间
                 chapter = await asyncio.wait_for(
-                    parser.parse(chapter_info.url),
+                    parser.parse(chapter_info.url, chapter_info.title, chapter_info.order),
                     timeout=self.download_config.timeout * 2,
                 )
 
                 if chapter and chapter.content:
+                    # 确保order字段正确设置
                     chapter.order = chapter_info.order
                     retry_chapters.append(chapter)
 
@@ -448,17 +465,20 @@ class EnhancedCrawler:
         file_path = download_dir / filename
 
         def write_file():
+            # 确保章节按order排序
+            sorted_chapters = sorted(chapters, key=lambda x: x.order or 0)
+            
             with open(file_path, "w", encoding="utf-8") as f:
                 # 写入书籍信息
                 f.write(f"书名：{book.title}\n")
                 f.write(f"作者：{book.author}\n")
                 if book.intro:
                     f.write(f"简介：{book.intro}\n")
-                f.write(f"章节数：{len(chapters)}\n")
+                f.write(f"章节数：{len(sorted_chapters)}\n")
                 f.write("=" * 50 + "\n\n")
 
-                # 写入章节内容
-                for chapter in chapters:
+                # 写入章节内容，按正确顺序
+                for chapter in sorted_chapters:
                     f.write(f"第{chapter.order}章 {chapter.title}\n")
                     f.write("-" * 30 + "\n")
                     f.write(chapter.content)
