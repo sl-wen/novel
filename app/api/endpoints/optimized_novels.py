@@ -440,6 +440,154 @@ async def clear_cache():
         )
 
 
+@router.post("/download/start")
+@monitor_performance("optimized_download_start")
+async def optimized_start_download(
+    url: str = Query(..., description="小说详情页URL"),
+    sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
+    format: str = Query("txt", description="下载格式，支持txt、epub"),
+):
+    """
+    优化版启动异步下载任务，立即返回任务ID
+    
+    优化特性:
+    - 任务管理：智能任务调度
+    - 进度跟踪：实时下载进度
+    - 错误处理：完善的错误恢复
+    """
+    try:
+        import uuid
+        from app.utils.progress_tracker import progress_tracker
+        
+        # 创建任务
+        task_id = str(uuid.uuid4())
+        progress_tracker.create_task(total_chapters=0, task_id=task_id)
+        progress_tracker.start_task(task_id)
+        logger.info(f"启动优化下载任务: {task_id} ({url}, source={sourceId}, format={format})")
+        
+        async def run_optimized_download():
+            try:
+                file_path = await optimized_service.optimized_download(url, sourceId, format, task_id=task_id)
+                if file_path:
+                    progress_tracker.set_file_path(task_id, file_path)
+                    progress_tracker.complete_task(task_id, True)
+                else:
+                    progress_tracker.complete_task(task_id, False, "文件生成失败")
+            except Exception as e:
+                logger.error(f"优化版后台下载任务失败: {str(e)}")
+                progress_tracker.complete_task(task_id, False, str(e))
+        
+        # 后台执行
+        import asyncio
+        asyncio.create_task(run_optimized_download())
+        
+        return {"code": 202, "message": "accepted", "data": {"task_id": task_id}}
+    except Exception as e:
+        logger.error(f"启动优化下载任务失败: {str(e)}")
+        return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
+
+
+@router.get("/download/progress")
+@monitor_performance("optimized_download_progress")
+async def optimized_get_download_progress(
+    task_id: str = Query(..., description="下载任务ID")
+):
+    """
+    获取优化版下载进度
+    
+    优化特性:
+    - 详细进度：章节级别的进度信息
+    - 性能指标：下载速度和质量统计
+    - 错误信息：详细的错误诊断
+    """
+    try:
+        logger.info(f"获取优化下载进度，任务ID：{task_id}")
+        
+        from app.utils.progress_tracker import progress_tracker
+        
+        progress = progress_tracker.get_progress(task_id)
+        if not progress:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "code": 404,
+                    "message": f"任务不存在: {task_id}",
+                    "data": None,
+                },
+            )
+        
+        return {"code": 200, "message": "success", "data": progress.to_dict()}
+    except Exception as e:
+        logger.error(f"获取优化下载进度失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"获取下载进度失败: {str(e)}",
+                "data": None,
+            },
+        )
+
+
+@router.get("/download/result")
+@monitor_performance("optimized_download_result")
+async def optimized_get_download_result(task_id: str = Query(..., description="下载任务ID")):
+    """
+    获取优化版已完成任务的文件（若未完成则返回状态）
+    
+    优化特性:
+    - 流式传输：高效的文件传输
+    - 智能缓存：避免重复传输
+    - 自动清理：防止磁盘空间浪费
+    """
+    try:
+        from app.utils.progress_tracker import progress_tracker
+        from fastapi.responses import StreamingResponse
+        import urllib.parse
+        from pathlib import Path
+        
+        progress = progress_tracker.get_progress(task_id)
+        if not progress:
+            return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
+        
+        # 未完成直接返回状态
+        if progress.status not in [progress.status.COMPLETED, progress.status.FAILED]:
+            return {"code": 200, "message": "running", "data": progress.to_dict()}
+        
+        if progress.status == progress.status.FAILED:
+            return JSONResponse(status_code=500, content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()})
+        
+        file_path = progress.file_path
+        if not file_path or not os.path.exists(file_path):
+            return JSONResponse(status_code=500, content={"code": 500, "message": "文件不存在或尚未生成", "data": progress.to_dict()})
+        
+        file_obj = Path(file_path)
+        filename = file_obj.name
+        encoded_filename = urllib.parse.quote(filename, safe="")
+        
+        def file_generator():
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(8192)
+                    if not chunk:
+                        break
+                    yield chunk
+        
+        return StreamingResponse(
+            file_generator(),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition",
+                "Content-Length": str(file_obj.stat().st_size),
+                "X-Task-ID": task_id,
+            },
+        )
+    except Exception as e:
+        logger.error(f"获取优化下载结果失败: {str(e)}")
+        return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
+
+
 @router.get("/health")
 async def health_check():
     """
