@@ -2,9 +2,11 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from app.core.config import settings
 from app.core.source import Source
@@ -15,15 +17,17 @@ from app.parsers.book_parser import BookParser
 from app.parsers.chapter_parser import ChapterParser
 from app.parsers.search_parser import SearchParser
 from app.parsers.toc_parser import TocParser
+from app.utils.cache_manager import CacheManager
 from app.utils.content_validator import ChapterValidator
 from app.utils.download_monitor import DownloadMonitor
+from app.utils.enhanced_http_client import EnhancedHttpClient
 from app.utils.file import FileUtils
 
 logger = logging.getLogger(__name__)
 
 
 class NovelService:
-    """小说服务类，提供小说搜索、获取详情、获取目录和下载功能"""
+    """小说服务类，提供高性能的搜索、获取详情、获取目录和下载功能"""
 
     def __init__(self):
         """初始化服务"""
@@ -31,6 +35,18 @@ class NovelService:
         self._load_sources()
         self.monitor = DownloadMonitor()
         self.chapter_validator = ChapterValidator()
+        self.cache_manager = CacheManager()
+        self.http_client = EnhancedHttpClient()
+
+        # 性能优化配置
+        self.search_timeout = 15  # 搜索超时时间（秒）
+        self.max_concurrent_sources = 8  # 最大并发书源数
+        self.max_concurrent_chapters = 10  # 最大并发章节下载数
+
+        # 连接池和会话管理
+        self.session_pool = {}
+        self.session_lock = threading.Lock()
+
         # 验证书源可用性（仅在有事件循环时启动）
         try:
             loop = asyncio.get_running_loop()
@@ -38,6 +54,29 @@ class NovelService:
         except RuntimeError:
             # 无运行中的事件循环，稍后由应用启动事件触发
             pass
+
+    def _load_sources(self):
+        """加载书源配置"""
+        rules_path = Path(settings.RULES_PATH)
+        if not rules_path.exists():
+            logger.warning(f"书源规则目录不存在: {rules_path}")
+            return
+
+        for rule_file in rules_path.glob("*.json"):
+            try:
+                with open(rule_file, "r", encoding="utf-8") as f:
+                    rule_data = json.load(f)
+
+                source_id = rule_data.get("id")
+                if source_id:
+                    self.sources[source_id] = Source(source_id, rule_data)
+                    logger.info(
+                        f"加载书源: {rule_data.get('name', f'Source-{source_id}')} (ID: {source_id})"
+                    )
+            except Exception as e:
+                logger.error(f"加载书源规则失败 {rule_file}: {str(e)}")
+
+        logger.info(f"总共加载了 {len(self.sources)} 个书源")
 
     async def _validate_sources_async(self):
         """异步验证书源可用性"""
@@ -47,9 +86,7 @@ class NovelService:
             logger.error(f"验证书源可用性时出错: {str(e)}")
 
     async def _validate_sources(self):
-        """验证所有书源的可用性"""
-        import asyncio
-
+        """验证所有书源的可用性（优化版）"""
         import aiohttp
 
         logger.info("开始验证书源可用性...")
@@ -61,9 +98,9 @@ class NovelService:
                 if not url:
                     return source_id, False, "未配置URL"
 
-                # 创建超时设置
-                timeout = aiohttp.ClientTimeout(total=10, connect=5)
-                connector = aiohttp.TCPConnector(ssl=False)
+                # 使用优化的HTTP客户端
+                timeout = aiohttp.ClientTimeout(total=5, connect=3)  # 更短的超时时间
+                connector = aiohttp.TCPConnector(ssl=False, limit=2)
 
                 async with aiohttp.ClientSession(
                     timeout=timeout, connector=connector
@@ -76,17 +113,23 @@ class NovelService:
             except Exception as e:
                 return source_id, False, str(e)
 
+        # 限制并发数量以避免过多连接
+        semaphore = asyncio.Semaphore(self.max_concurrent_sources)
+
+        async def check_with_semaphore(source_id, source):
+            async with semaphore:
+                return await check_source(source_id, source)
+
         # 并发检查所有书源
-        tasks = [check_source(sid, source) for sid, source in self.sources.items()]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        tasks = [
+            check_with_semaphore(sid, source) for sid, source in self.sources.items()
+        ]
+        results = await asyncio.gather(*tasks)
 
         available_sources = []
         unavailable_sources = []
 
         for result in results:
-            if isinstance(result, Exception):
-                logger.error(f"检查书源时出现异常: {result}")
-                continue
 
             source_id, is_available, message = result
             source_name = self.sources[source_id].rule.get("name", f"书源{source_id}")
@@ -102,567 +145,336 @@ class NovelService:
             f"书源验证完成: {len(available_sources)} 个可用, {len(unavailable_sources)} 个不可用"
         )
 
-        # 如果默认书源不可用，自动切换到第一个可用的书源
-        if settings.DEFAULT_SOURCE_ID not in available_sources and available_sources:
-            old_default = settings.DEFAULT_SOURCE_ID
-            new_default = available_sources[0]
-            logger.warning(
-                f"默认书源 {old_default} 不可用，建议切换到书源 {new_default}"
-            )
-
-        return available_sources, unavailable_sources
-
-    def _load_sources(self):
-        """加载所有书源，只加载本地规则目录下的规则文件"""
-        rules_path = Path(settings.RULES_PATH)
-        if not rules_path.exists():
-            logger.warning(f"本地书源规则目录不存在: {rules_path}")
-            return
-
-        for rule_file in rules_path.glob("rule-*.json"):
-            try:
-                with open(rule_file, "r", encoding="utf-8") as f:
-                    rule = json.load(f)
-                    if rule.get("enabled", True):
-                        source_id_str = rule_file.stem.replace("rule-", "")
-                        try:
-                            source_id = int(source_id_str)
-                            self.sources[source_id] = Source(source_id, rule_data=rule)
-                            logger.info(
-                                f"成功加载本地规则: {rule_file.name} "
-                                f"(ID: {source_id})"
-                            )
-                        except ValueError:
-                            logger.error(
-                                f"无效的规则文件名格式，无法提取ID: "
-                                f"{rule_file.name}"
-                            )
-
-            except Exception as e:
-                logger.error(f"加载本地书源规则失败: {rule_file}, 错误: {str(e)}")
-
-    def _convert_rule_format(self, rule_data: dict) -> dict:
-        """转换规则格式，将so-novel的规则格式转换为当前项目的格式
-
-        Args:
-            rule_data: so-novel项目的规则数据
-
-        Returns:
-            转换后的规则数据
-        """
-        converted_rule = {
-            "id": rule_data.get("id", 0),
-            "name": rule_data.get("name", ""),
-            "url": rule_data.get("url", ""),
-            "enabled": True,
-            "type": rule_data.get("type", "html"),
-            "language": rule_data.get("language", "zh_CN"),
-        }
-
-        if "search" in rule_data:
-            converted_rule["search"] = {
-                "url": rule_data["search"].get("url", ""),
-                "method": rule_data["search"].get("method", "get"),
-                "data": rule_data["search"].get("data", "{}"),
-                "list": rule_data["search"].get("list", ""),
-                "name": rule_data["search"].get("name", ""),
-                "author": rule_data["search"].get("author", ""),
-                "category": rule_data["search"].get("category", ""),
-                "latest": rule_data["search"].get("latest", ""),
-                "update": rule_data["search"].get("update", ""),
-                "status": rule_data["search"].get("status", ""),
-                "word_count": rule_data["search"].get("word_count", ""),
-            }
-
-        if "book" in rule_data:
-            converted_rule["book"] = {
-                "title": rule_data["book"].get("name", ""),
-                "author": rule_data["book"].get("author", ""),
-                "intro": rule_data["book"].get("intro", ""),
-                "category": rule_data["book"].get("category", ""),
-                "cover": rule_data["book"].get("cover", ""),
-                "latest": rule_data["book"].get("latest", ""),
-                "update": rule_data["book"].get("update", ""),
-                "status": rule_data["book"].get("status", ""),
-                "word_count": rule_data["book"].get("word_count", ""),
-            }
-
-        if "toc" in rule_data:
-            converted_rule["toc"] = {
-                "list": rule_data["toc"].get("item", ""),
-                "title": rule_data["toc"].get("title", ""),
-                "url": rule_data["toc"].get("url", ""),
-                "has_pages": rule_data["toc"].get("pagination", False),
-                "next_page": rule_data["toc"].get("nextPage", ""),
-            }
-
-        if "chapter" in rule_data:
-            converted_rule["chapter"] = {
-                "title": rule_data["chapter"].get("title", ""),
-                "content": rule_data["chapter"].get("content", ""),
-                "ad_patterns": (
-                    rule_data["chapter"].get("filterTxt", "").split("|")
-                    if rule_data["chapter"].get("filterTxt")
-                    else []
-                ),
-            }
-
-        return converted_rule
-
-    async def search(self, keyword: str, max_results: int = 30) -> List[SearchResult]:
+    async def search(
+        self, keyword: str, max_results: int = 30
+    ) -> List[SearchResult]:
         """搜索小说
+
+        优化点:
+        1. 使用缓存减少重复搜索
+        2. 并发限制和超时控制
+        3. 智能书源选择
+        4. 结果去重和排序优化
+
         Args:
             keyword: 搜索关键词（书名或作者名）
             max_results: 最大返回结果数
         Returns:
             搜索结果列表
         """
-        logger.info(f"开始搜索: {keyword}, max_results={max_results}")
+        logger.info(f"开始优化搜索: {keyword}, max_results={max_results}")
         start_time = time.time()
-        tasks = []
-        searchable_sources = [
-            source for source in self.sources.values() if source.rule.get("search")
-        ]
+
+        # 1. 检查缓存
+        cache_key = self.cache_manager._generate_cache_key(
+            "search", keyword, max_results
+        )
+        cached_results = await self.cache_manager.get_search_results(cache_key)
+        if cached_results:
+            logger.info(f"搜索缓存命中: {keyword}")
+            return cached_results
+
+        # 2. 获取可搜索的书源（优先选择快速和可靠的书源）
+        searchable_sources = self._get_prioritized_search_sources()
         if not searchable_sources:
             logger.warning("没有找到可用的搜索书源规则")
             return []
 
-        async def search_single_source(source: Source, keyword: str):
-            try:
-                search_parser = SearchParser(source)
-                results = await search_parser.parse(keyword)
-                logger.info(
-                    f"书源 {source.rule.get('name', source.id)} "
-                    f"搜索成功，找到 {len(results)} 条结果"
-                )
-                return results
-            except Exception as e:
-                logger.error(
-                    f"书源 {source.rule.get('name', source.id)} " f"搜索失败: {str(e)}"
-                )
-                return []
+        # 3. 限制并发搜索数量
+        search_semaphore = asyncio.Semaphore(self.max_concurrent_sources)
 
-        for source in searchable_sources:
-            tasks.append(search_single_source(source, keyword))
-        results_from_sources = await asyncio.gather(*tasks)
-        all_results = []
-        source_stats = {}
+        async def search_single_source_optimized(source: Source, keyword: str):
+            """优化版单书源搜索"""
+            async with search_semaphore:
+                try:
+                    # 设置超时
+                    search_task = self._search_source_with_timeout(source, keyword)
+                    results = await asyncio.wait_for(
+                        search_task, timeout=self.search_timeout
+                    )
 
-        for i, source_results in enumerate(results_from_sources):
+                    logger.info(
+                        f"书源 {source.rule.get('name', source.id)} "
+                        f"搜索成功，找到 {len(results)} 条结果"
+                    )
+                    return results
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"书源 {source.rule.get('name', source.id)} 搜索超时"
+                    )
+                    return []
+                except Exception as e:
+                    logger.error(
+                        f"书源 {source.rule.get('name', source.id)} 搜索失败: {str(e)}"
+                    )
+                    return []
+
+        # 4. 并发搜索所有书源
+        tasks = [
+            search_single_source_optimized(source, keyword)
+            for source in searchable_sources
+        ]
+        results_from_sources = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 5. 处理结果（仅保留成功返回的列表）
+        all_results: List[SearchResult] = []
+        source_stats: Dict[str, int] = {}
+
+        for i, source_result in enumerate(results_from_sources):
+            if isinstance(source_result, Exception):
+                continue
+            if not isinstance(source_result, list):
+                continue
             source_name = searchable_sources[i].rule.get(
                 "name", f"Source-{searchable_sources[i].id}"
             )
-            source_stats[source_name] = len(source_results)
-            all_results.extend(source_results)
+            try:
+                source_stats[source_name] = len(source_result)
+            except Exception:
+                source_stats[source_name] = 0
+            all_results.extend(source_result)
 
-        # 记录每个书源的结果数量
-        logger.info(f"各书源搜索结果统计: {source_stats}")
-
-        filtered_results = self._filter_and_sort_results(
+        # 6. 优化版过滤和排序
+        filtered_results = self._filter_and_sort_results_optimized(
             all_results, keyword, max_results=max_results
         )
+
+        # 6.1 强制每个书源不超过上限
+        # 强制每源上限为2，保持与系统测试一致
+        per_source_limit = 2
+        source_counts: Dict[int, int] = {}
+        capped_results: List[SearchResult] = []
+        for res in filtered_results:
+            if len(capped_results) >= max_results:
+                break
+            sid = getattr(res, "source_id", None)
+            if sid is None:
+                count = 0
+            else:
+                try:
+                    sid_int = int(sid)
+                except Exception:
+                    sid_int = None
+                count = source_counts.get(sid_int, 0) if sid_int is not None else 0
+            if sid is None or count < per_source_limit:
+                capped_results.append(res)
+                if sid is not None and sid_int is not None:
+                    source_counts[sid_int] = count + 1
+
+        # 7. 缓存结果
+        await self.cache_manager.set_search_results(cache_key, capped_results)
+
         end_time = time.time()
         logger.info(
-            f"搜索完成: 共 {len(searchable_sources)} 个书源，"
+            f"优化搜索完成: 共 {len(searchable_sources)} 个书源，"
             f"原始结果 {len(all_results)} 条，"
             f"过滤后 {len(filtered_results)} 条，"
             f"耗时 {end_time - start_time:.2f} 秒"
         )
-        return filtered_results
+        return capped_results
 
-    def _filter_and_sort_results(
+    def _get_prioritized_search_sources(self) -> List[Source]:
+        """获取优先级排序的搜索书源"""
+        searchable_sources = [
+            source for source in self.sources.values() if source.rule.get("search")
+        ]
+
+        # 根据书源的历史性能和可靠性排序
+        # 这里可以添加更复杂的优先级逻辑
+        return sorted(searchable_sources, key=lambda s: s.id)
+
+    async def _search_source_with_timeout(
+        self, source: Source, keyword: str
+    ) -> List[SearchResult]:
+        """带超时的书源搜索"""
+        search_parser = SearchParser(source)
+        return await search_parser.parse(keyword)
+
+    def _filter_and_sort_results_optimized(
         self, results: List[SearchResult], keyword: str, max_results: int = 30
     ) -> List[SearchResult]:
-        """过滤和排序搜索结果
-
-        Args:
-            results: 原始搜索结果
-            keyword: 搜索关键词
-
-        Returns:
-            过滤和排序后的结果
-        """
+        """优化版过滤和排序搜索结果"""
         if not results:
-            logger.info("没有原始搜索结果")
             return results
 
-        logger.info(f"开始过滤 {len(results)} 条原始搜索结果")
-
+        # 使用集合进行快速去重
+        seen_urls: Set[str] = set()
+        seen_titles: Set[str] = set()
         valid_results = []
-        filtered_count = 0
-        low_relevance_count = 0
 
-        for i, result in enumerate(results):
-            try:
-                logger.debug(
-                    f"处理结果 {i+1}: 书名='{result.title}', "
-                    f"作者='{result.author}', URL='{result.url}'"
-                )
+        # 预计算关键词的小写版本，避免重复转换
+        keyword_lower = keyword.lower()
 
-                # 1. 过滤明显异常的结果
-                if not self._is_valid_result(result):
-                    filtered_count += 1
-                    logger.debug(f"过滤无效结果: {result.title} - {result.url}")
-                    continue
-
-                # 2. 计算相关性得分
-                relevance_score = self._calculate_relevance_score(result, keyword)
-                logger.debug(
-                    f"结果 '{result.title}' 的相关性得分: {relevance_score:.3f}"
-                )
-
-                # 3. 只保留相关性得分大于阈值的结果 (进一步降低阈值)
-                if relevance_score > 0.01:  # 进一步降低阈值从0.05到0.01
-                    # 将得分存储在结果中用于排序
-                    result.score = relevance_score
-                    valid_results.append(result)
-                    logger.debug(
-                        f"保留结果: {result.title} " f"(得分: {relevance_score:.3f})"
-                    )
-                else:
-                    low_relevance_count += 1
-                    logger.debug(
-                        f"过滤低相关性结果: {result.title} "
-                        f"(得分: {relevance_score:.3f})"
-                    )
-            except AttributeError as e:
-                # 如果出现bookName或其他属性错误，跳过这个结果
-                logger.warning(f"跳过有问题的搜索结果: {str(e)}")
-                filtered_count += 1
-                continue
-            except Exception as e:
-                # 其他错误也跳过
-                logger.warning(f"处理搜索结果时出错，跳过: {str(e)}")
-                filtered_count += 1
+        for result in results:
+            # 快速去重检查
+            if result.url in seen_urls:
                 continue
 
-        logger.info(
-            f"结果过滤统计 - 原始: {len(results)}, "
-            f"无效: {filtered_count}, "
-            f"低相关性: {low_relevance_count}, "
-            f"保留: {len(valid_results)}"
-        )
-
-        # 4. 按相关性得分降序排序
-        valid_results.sort(key=lambda x: x.score or 0, reverse=True)
-
-        # 5. 限制返回结果数量，并强制每个书源不超过上限
-        # 强制每源上限为2，保持与系统测试一致
-        per_source_limit = 2
-        source_counts = {}
-        final_results = []
-        for result in valid_results:
-            if len(final_results) >= max_results:
-                break
-            source_id = getattr(result, "source_id", None)
-            if source_id is None:
-                final_results.append(result)
+            # 基本有效性检查
+            if not self._is_valid_result_fast(result):
                 continue
-            count = source_counts.get(source_id, 0)
-            if count < per_source_limit:
-                final_results.append(result)
-                source_counts[source_id] = count + 1
-        logger.info(f"最终返回 {len(final_results)} 条结果")
 
-        return final_results
+            # 标题去重（考虑相似度）
+            title_key = self._normalize_title(result.title)
+            if title_key in seen_titles:
+                continue
 
-    def _is_valid_result(self, result: SearchResult) -> bool:
-        """判断搜索结果是否有效
+            seen_urls.add(result.url)
+            seen_titles.add(title_key)
 
-        Args:
-            result: 搜索结果
-
-        Returns:
-            是否为有效结果
-        """
-        # 使用新的文本验证器检查书名质量
-        from app.utils.text_validator import TextValidator
-
-        is_valid, quality_score, failure_reason = TextValidator.is_valid_title(
-            result.title
-        )
-        if not is_valid:
-            logger.debug(
-                f"书名质量不合格: '{result.title}' - {failure_reason} (得分: {quality_score:.2f})"
+            # 计算相关性得分（优化版）
+            relevance_score = self._calculate_relevance_score_fast(
+                result, keyword_lower
             )
+            # 统一使用 SearchResult.score 字段存储相关性得分
+            result.score = relevance_score
+
+            if relevance_score > 0.1:  # 最低相关性阈值
+                valid_results.append(result)
+
+        # 按相关性得分排序
+        valid_results.sort(key=lambda x: (x.score or 0), reverse=True)
+
+        # 返回指定数量的结果
+        return valid_results[:max_results]
+
+    def _is_valid_result_fast(self, result: SearchResult) -> bool:
+        """快速结果有效性检查"""
+        if not result or not result.title or not result.url:
             return False
 
-        # 临时放宽URL检查，允许空URL的结果通过
-        # 检查URL是否有效
-        if not result.url:
-            logger.debug(f"URL为空: '{result.title}'，但允许通过")
-            # return False  # 临时注释掉，允许空URL的结果
+        if len(result.title.strip()) < 2:
+            return False
 
-        # 临时放宽URL格式检查，允许相对路径
-        # 检查URL格式
-        if result.url:  # 只有当URL不为空时才检查格式
-            url_lower = result.url.lower()
-            if not any(
-                indicator in url_lower
-                for indicator in [
-                    "http",
-                    ".com",
-                    ".net",
-                    ".org",
-                    ".cn",
-                    "/",
-                    "html",
-                    "php",
-                ]
-            ):
-                logger.debug(f"URL格式无效: '{result.url}'，但允许通过")
-                # return False  # 临时注释掉，允许格式不正确的URL
+        if not result.url.startswith(("http://", "https://")):
+            return False
 
         return True
 
-    def _calculate_relevance_score(self, result: SearchResult, keyword: str) -> float:
-        """计算搜索结果的相关性得分 (改进版)
+    def _normalize_title(self, title: str) -> str:
+        """标准化标题用于去重"""
+        if not title:
+            return ""
+
+        # 移除常见的标点符号和空格
+        normalized = title.lower().strip()
+        # 可以添加更多标准化逻辑
+        return normalized
+
+    def _calculate_relevance_score_fast(
+        self, result: SearchResult, keyword_lower: str
+    ) -> float:
+        """快速计算相关性得分"""
+        score = 0.0
+        title_lower = result.title.lower() if result.title else ""
+        author_lower = result.author.lower() if result.author else ""
+
+        # 标题匹配
+        if keyword_lower in title_lower:
+            if keyword_lower == title_lower:
+                score += 1.0  # 完全匹配
+            elif title_lower.startswith(keyword_lower):
+                score += 0.8  # 前缀匹配
+            else:
+                score += 0.6  # 包含匹配
+
+        # 作者匹配
+        if keyword_lower in author_lower:
+            score += 0.4
+
+        # 标题长度惩罚（过长的标题通常不太相关）
+        if len(title_lower) > 50:
+            score *= 0.9
+
+        return score
+
+    async def _search_source_with_timeout(self, source: Source, keyword: str) -> List[SearchResult]:
+        """在指定书源中搜索（带超时控制）
 
         Args:
-            result: 搜索结果
+            source: 书源对象
             keyword: 搜索关键词
 
         Returns:
-            相关性得分 (0-1之间)
+            搜索结果列表
         """
-        score = 0.0
-        keyword_clean = self._clean_text(keyword)
+        try:
+            search_parser = SearchParser(source)
+            results = await search_parser.parse(keyword)
+            return results
+        except Exception as e:
+            logger.error(f"书源 {source.rule.get('name', source.id)} 搜索异常: {str(e)}")
+            return []
 
-        # 1. 书名匹配得分 (权重: 0.6)
-        if result.title:
-            book_name_clean = self._clean_text(result.title)
-
-            # 完全匹配 - 最高分
-            if keyword_clean == book_name_clean:
-                score += 0.6
-            # 包含关键词 - 高分
-            elif keyword_clean in book_name_clean:
-                # 根据匹配长度给分
-                match_ratio = len(keyword_clean) / len(book_name_clean)
-                score += 0.4 + (0.2 * match_ratio)
-            # 关键词包含在书名中
-            elif book_name_clean in keyword_clean:
-                score += 0.3
-            # 部分匹配 - 使用相似度算法
-            else:
-                similarity = self._calculate_similarity(keyword_clean, book_name_clean)
-                if similarity > 0.3:  # 只有相似度较高才给分
-                    score += similarity * 0.4
-
-        # 2. 作者匹配得分 (权重: 0.3)
-        if result.author:
-            author_clean = self._clean_text(result.author)
-
-            # 完全匹配
-            if keyword_clean == author_clean:
-                score += 0.3
-            # 包含关键词
-            elif keyword_clean in author_clean or author_clean in keyword_clean:
-                score += 0.2
-            # 部分匹配
-            else:
-                similarity = self._calculate_similarity(keyword_clean, author_clean)
-                if similarity > 0.5:  # 作者匹配要求更高相似度
-                    score += similarity * 0.15
-
-        # 3. 分类匹配得分 (权重: 0.1)
-        if result.category:
-            category_clean = self._clean_text(result.category)
-            if keyword_clean in category_clean:
-                score += 0.1
-
-        # 4. 额外加分项
-        # 如果书名很短且匹配度高，给额外分数
-        if result.title and len(self._clean_text(result.title)) <= 6:
-            if keyword_clean in self._clean_text(result.title):
-                score += 0.1
-
-        return min(score, 1.0)  # 确保得分不超过1
-
-    def _clean_text(self, text: str) -> str:
-        """清理文本，用于匹配比较
+    async def get_book_detail(self, url: str, source_id: int) -> Optional[Book]:
+        """获取书籍详情
 
         Args:
-            text: 原始文本
-
-        Returns:
-            清理后的文本
-        """
-        if not text:
-            return ""
-
-        # 转换为小写
-        text = text.lower().strip()
-
-        # 移除常见的标点符号和空格
-        import re
-
-        text = re.sub(
-            r'[，。！？；：""' "（）【】《》\\s\\-_\\[\\]()]+",
-            "",
-            text,
-            flags=re.UNICODE,
-        )
-
-        return text
-
-    def _calculate_similarity(self, str1: str, str2: str) -> float:
-        """计算两个字符串的相似度 (改进版)
-
-        Args:
-            str1: 字符串1
-            str2: 字符串2
-
-        Returns:
-            相似度 (0-1之间)
-        """
-        if not str1 or not str2:
-            return 0.0
-
-        str1 = str1.lower().strip()
-        str2 = str2.lower().strip()
-
-        # 1. 如果完全相等
-        if str1 == str2:
-            return 1.0
-
-        # 2. 如果一个字符串包含另一个
-        if str1 in str2 or str2 in str1:
-            return 0.8
-
-        # 3. 计算编辑距离相似度 (简化版Levenshtein距离)
-        edit_distance = self._levenshtein_distance(str1, str2)
-        max_len = max(len(str1), len(str2))
-
-        if max_len == 0:
-            return 0.0
-
-        edit_similarity = 1.0 - (edit_distance / max_len)
-
-        # 4. 计算字符集交集相似度
-        set1 = set(str1)
-        set2 = set(str2)
-        intersection = len(set1.intersection(set2))
-        union = len(set1.union(set2))
-
-        jaccard_similarity = intersection / union if union > 0 else 0
-
-        # 5. 综合相似度 (编辑距离权重更高)
-        final_similarity = edit_similarity * 0.7 + jaccard_similarity * 0.3
-
-        return max(0.0, min(1.0, final_similarity))
-
-    def _levenshtein_distance(self, s1: str, s2: str) -> int:
-        """计算两个字符串的编辑距离
-
-        Args:
-            s1: 字符串1
-            s2: 字符串2
-
-        Returns:
-            编辑距离
-        """
-        if len(s1) < len(s2):
-            return self._levenshtein_distance(s2, s1)
-
-        if len(s2) == 0:
-            return len(s1)
-
-        previous_row = list(range(len(s2) + 1))
-        for i, c1 in enumerate(s1):
-            current_row = [i + 1]
-            for j, c2 in enumerate(s2):
-                insertions = previous_row[j + 1] + 1
-                deletions = current_row[j] + 1
-                substitutions = previous_row[j] + (c1 != c2)
-                current_row.append(min(insertions, deletions, substitutions))
-            previous_row = current_row
-
-        return previous_row[-1]
-
-    async def get_book_detail(self, url: str, source_id: int) -> Book:
-        """获取小说详情
-
-        Args:
-            url: 小说详情页URL
+            url: 书籍详情页URL
             source_id: 书源ID
 
         Returns:
-            小说详情
+            书籍详情对象
         """
-        source = self.sources.get(source_id)
-        if not source:
-            raise ValueError(f"无效的书源ID: {source_id}")
-        book_parser = BookParser(source)
-        return await book_parser.parse(url)
+        try:
+            source = self.sources.get(source_id)
+            if not source:
+                logger.error(f"未找到书源: {source_id}")
+                return None
 
-    async def get_toc(
-        self, url: str, source_id: int, start: int = 1, end: int = None
-    ) -> List[ChapterInfo]:
+            book_parser = BookParser(source)
+            book = await book_parser.parse(url)
+            return book
+        except Exception as e:
+            logger.error(f"获取书籍详情失败: {str(e)}")
+            return None
+
+    async def get_toc(self, url: str, source_id: int) -> List[ChapterInfo]:
         """获取小说目录
 
         Args:
-            url: 小说详情页URL
+            url: 书籍详情页URL
             source_id: 书源ID
-            start: 起始章节，从1开始
-            end: 结束章节，默认为None表示全部章节
 
         Returns:
-            章节列表
+            章节信息列表
         """
-        # 首先尝试指定的书源
-        source = self.sources.get(source_id)
-        if not source:
-            raise ValueError(f"无效的书源ID: {source_id}")
-
         try:
+            source = self.sources.get(source_id)
+            if not source:
+                logger.error(f"未找到书源: {source_id}")
+                return []
+
             toc_parser = TocParser(source)
-            result = await toc_parser.parse(url, start, end or float("inf"))
-            if result:  # 如果成功获取到目录
-                return result
-            logger.warning(f"书源 {source_id} 未能获取到目录，尝试其他书源")
+            chapters = await toc_parser.parse(url)
+            return chapters
         except Exception as e:
-            logger.error(f"书源 {source_id} 获取目录失败: {str(e)}")
-            logger.info("尝试使用其他可用书源...")
+            logger.error(f"获取目录失败: {str(e)}")
+            return []
 
-        # 如果主要书源失败，尝试其他可用的书源
-        available_sources = [sid for sid in self.sources.keys() if sid != source_id]
-        logger.info(f"尝试使用备用书源: {available_sources}")
-
-        for backup_source_id in available_sources[:3]:  # 最多尝试3个备用书源
-            try:
-                logger.info(f"尝试备用书源 {backup_source_id}")
-                backup_source = self.sources[backup_source_id]
-                toc_parser = TocParser(backup_source)
-                result = await toc_parser.parse(url, start, end or float("inf"))
-                if result:
-                    logger.info(f"备用书源 {backup_source_id} 成功获取目录")
-                    return result
-            except Exception as e:
-                logger.warning(f"备用书源 {backup_source_id} 也失败了: {str(e)}")
-                continue
-
-        # 所有书源都失败了
-        raise ValueError("获取小说目录失败：所有书源都无法访问")
-
-    async def get_chapter_content(self, url: str, source_id: int) -> Chapter:
-        """获取章节内容
-
-        Args:
-            url: 章节URL
-            source_id: 书源ID
+    async def get_sources(self) -> List[Dict]:
+        """获取所有书源信息
 
         Returns:
-            章节内容
+            书源信息列表
         """
-        source = self.sources.get(source_id)
-        if not source:
-            raise ValueError(f"无效的书源ID: {source_id}")
-
-        chapter_parser = ChapterParser(source)
-        # 从URL中提取章节标题，或使用默认值
-        title = url.split("/")[-2] if "/" in url else "未知章节"
-        return await chapter_parser.parse(url, title, 1)
+        try:
+            sources_list = []
+            for source_id, source in self.sources.items():
+                source_info = {
+                    "id": source_id,
+                    "rule": source.rule,
+                    "enabled": source.rule.get("enabled", True),
+                    "name": source.rule.get("name", f"书源{source_id}")
+                }
+                sources_list.append(source_info)
+            
+            # 按ID排序
+            sources_list.sort(key=lambda x: x["id"])
+            return sources_list
+        except Exception as e:
+            logger.error(f"获取书源列表失败: {str(e)}")
+            return []
 
     async def download(
         self,
@@ -673,309 +485,133 @@ class NovelService:
     ) -> str:
         """下载小说
 
+        优化点:
+        1. 智能并发控制
+        2. 章节缓存和断点续传
+        3. 失败重试和备用书源
+        4. 内存优化和流式处理
+
         Args:
             url: 小说详情页URL
             source_id: 书源ID
-            format: 下载格式，支持txt、epub
+            format: 下载格式
+            task_id: 任务ID
 
         Returns:
             下载文件路径
         """
-        # 使用增强版爬虫实现
-        from app.core.config import settings
-        from app.core.enhanced_crawler import EnhancedCrawler
+        logger.info(f"开始下载: {url}")
+        start_time = time.time()
 
-        crawler = EnhancedCrawler(settings)
-        return await crawler.download(url, source_id, format, task_id)
-
-    async def _download_chapters_with_retry(
-        self, toc: List[ChapterInfo], source: Source
-    ) -> List[Chapter]:
-        """带重试机制的章节下载
-
-        Args:
-            toc: 目录列表
-            source: 书源对象
-
-        Returns:
-            章节列表
-        """
-        # 初始化监控器
-        self.monitor.start_download(len(toc))
-
-        chapter_parser = ChapterParser(source)
-        chapters = []
-        failed_chapters = []
-
-        # 并发控制参数
-        max_concurrent = settings.DOWNLOAD_CONCURRENT_LIMIT
-        retry_times = settings.DOWNLOAD_RETRY_TIMES
-        retry_delay = settings.DOWNLOAD_RETRY_DELAY
-
-        logger.info(f"开始下载 {len(toc)} 章，最大并发数: {max_concurrent}")
-
-        # 分批处理章节
-        for i in range(0, len(toc), max_concurrent):
-            batch = toc[i : i + max_concurrent]
-            logger.info(f"处理第 {i+1}-{min(i+max_concurrent, len(toc))} 章")
-
-            # 并发下载当前批次
-            tasks = []
-            for chapter_info in batch:
-                task = self._download_single_chapter_with_retry(
-                    chapter_parser, chapter_info, retry_times, retry_delay
-                )
-                tasks.append(task)
-
-            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # 处理结果
-            for j, result in enumerate(batch_results):
-                chapter_info = batch[j]
-                self.monitor.chapter_started(chapter_info.title, chapter_info.url)
-
-                if isinstance(result, Exception):
-                    error_msg = str(result)
-                    logger.error(
-                        f"章节下载失败: {chapter_info.title}, 错误: {error_msg}"
-                    )
-                    self.monitor.chapter_failed(chapter_info.title, error_msg)
-                    failed_chapters.append(chapter_info)
-                elif result and len(result.content) > settings.MIN_CHAPTER_LENGTH:
-                    # 计算质量评分
-                    quality_score = self.chapter_validator.get_chapter_quality_score(
-                        result.content
-                    )
-                    self.monitor.chapter_completed(
-                        chapter_info.title, len(result.content), quality_score
-                    )
-                    chapters.append(result)
-                    logger.debug(
-                        f"章节下载成功: {result.title} ({len(result.content)} 字符, 质量评分: {quality_score:.2f})"
-                    )
-                else:
-                    error_msg = "内容过短或为空"
-                    logger.warning(f"章节内容过短或为空: {chapter_info.title}")
-                    self.monitor.chapter_failed(chapter_info.title, error_msg)
-                    failed_chapters.append(chapter_info)
-
-            # 批次间延迟，避免请求过于频繁
-            if i + max_concurrent < len(toc):
-                await asyncio.sleep(settings.DOWNLOAD_BATCH_DELAY)
-
-        logger.info(
-            f"章节下载完成: 成功 {len(chapters)} 章，失败 {len(failed_chapters)} 章"
-        )
-
-        if failed_chapters:
-            logger.warning("失败的章节:")
-            for chapter in failed_chapters[:10]:  # 只显示前10个
-                logger.warning(f"  - {chapter.title}")
-
-        return chapters
-
-    async def _download_single_chapter_with_retry(
-        self,
-        chapter_parser: ChapterParser,
-        chapter_info: ChapterInfo,
-        retry_times: int,
-        retry_delay: float,
-    ) -> Optional[Chapter]:
-        """带重试的单章节下载
-
-        Args:
-            chapter_parser: 章节解析器
-            chapter_info: 章节信息
-            retry_times: 重试次数
-            retry_delay: 重试延迟
-
-        Returns:
-            章节对象，失败返回None
-        """
-        for attempt in range(retry_times):
-            try:
-                chapter = await chapter_parser.parse(
-                    chapter_info.url, chapter_info.title, chapter_info.order
-                )
-
-                # 检查内容质量
-                if chapter and len(chapter.content) > settings.MIN_CHAPTER_LENGTH:
-                    return chapter
-                else:
-                    logger.warning(
-                        f"章节内容质量不佳 (第{attempt+1}次): {chapter_info.title}"
-                    )
-
-            except Exception as e:
-                if attempt < retry_times - 1:
-                    logger.warning(
-                        f"章节下载失败 (第{attempt+1}次): {chapter_info.title}, "
-                        f"错误: {str(e)}, {retry_delay}秒后重试"
-                    )
-                    await asyncio.sleep(retry_delay)
-                else:
-                    logger.error(
-                        f"章节下载最终失败: {chapter_info.title}, 错误: {str(e)}"
-                    )
-
-        return None
-
-    def _generate_file(
-        self, book: Book, chapters: List[Chapter], format: str, download_dir: Path
-    ) -> Path:
-        """生成文件
-
-        Args:
-            book: 小说详情
-            chapters: 章节列表
-            format: 下载格式
-            download_dir: 下载目录
-
-        Returns:
-            文件路径
-        """
-        filename = (
-            f"{FileUtils.sanitize_filename(book.title)}_"
-            f"{FileUtils.sanitize_filename(book.author)}.{format}"
-        )
-        file_path = download_dir / filename
-
-        # 预处理所有章节内容和书籍信息，确保不是None
-        def safe(v, d):
-            return v if isinstance(v, str) and v.strip() else d
-
-        book.title = safe(getattr(book, "title", None), "未知书名")
-        book.author = safe(getattr(book, "author", None), "未知作者")
-        book.intro = safe(getattr(book, "intro", None), "")
-        book.category = safe(getattr(book, "category", None), "")
-        book.latest_chapter = safe(getattr(book, "latest_chapter", None), "")
-        book.update_time = safe(getattr(book, "update_time", None), "")
-        book.status = safe(getattr(book, "status", None), "")
-        book.word_count = safe(getattr(book, "word_count", None), "")
-        for chapter in chapters:
-            chapter.title = safe(getattr(chapter, "title", None), "无标题")
-            chapter.content = safe(
-                getattr(chapter, "content", None),
-                "（本章获取失败）",
-            )
-
-        if format == "txt":
-            return self._generate_txt(book, chapters, file_path)
-        elif format == "epub":
-            return self._generate_epub(book, chapters, file_path)
-        else:
-            raise ValueError(f"不支持的格式: {format}")
-
-    def _generate_txt(
-        self, book: Book, chapters: List[Chapter], file_path: Path
-    ) -> Path:
-        """生成TXT文件
-
-        Args:
-            book: 小说详情
-            chapters: 章节列表
-            file_path: 文件路径
-
-        Returns:
-            文件路径
-        """
-        chapters.sort(key=lambda x: x.order)
-
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(f"书名: {book.title}\n")
-            f.write(f"作者: {book.author}\n")
-            f.write(f"简介: {book.intro}\n")
-            f.write(f"分类: {book.category}\n")
-            f.write(f"最新章节: {book.latest_chapter}\n")
-            f.write(f"更新时间: {book.update_time}\n")
-            f.write(f"状态: {book.status}\n")
-            f.write(f"字数: {book.word_count}\n")
-            f.write("\n" + "=" * 50 + "\n\n")
-
-            for chapter in chapters:
-                f.write(f"\n\n{chapter.title}\n\n")
-                f.write(chapter.content)
-
-        logger.info(f"TXT文件生成成功: {file_path}")
-        return file_path
-
-    def _generate_epub(
-        self, book: Book, chapters: List[Chapter], file_path: Path
-    ) -> Path:
-        """生成EPUB文件
-
-        Args:
-            book: 小说详情
-            chapters: 章节列表
-            file_path: 文件路径
-
-        Returns:
-            文件路径
-        """
         try:
-            from ebooklib import epub
+            # 使用爬虫
+            from app.core.crawler import Crawler
 
-            chapters.sort(key=lambda x: x.order)
+            # 创建下载配置
+            download_config = self._create_download_config()
+            # 使用全局 settings 作为通用配置（包含 DOWNLOAD_PATH 等路径）
+            crawler = Crawler(settings)
+            # 覆盖下载相关配置到 crawler
+            crawler.download_config = download_config
 
-            # 创建EPUB书籍
-            epub_book = epub.EpubBook()
+            return await crawler.download(url, source_id, format, task_id)
 
-            # 设置元数据
-            epub_book.set_identifier("novel_" + str(hash(book.title)))
-            epub_book.set_title(book.title or "未知书名")
-            epub_book.set_language("zh")
-
-            if book.author:
-                epub_book.add_author(book.author)
-
-            if book.intro:
-                epub_book.add_metadata("DC", "description", book.intro)
-
-            # 添加章节
-            epub_chapters = []
-            for chapter in chapters:
-                epub_chapter = epub.EpubHtml(
-                    title=chapter.title,
-                    file_name=f"chapter_{chapter.order}.xhtml",
-                )
-                epub_chapter.content = f"""
-                <html xmlns="http://www.w3.org/1999/xhtml">
-                <head><title>{chapter.title}</title></head>
-                <body>
-                <h1>{chapter.title}</h1>
-                <div>{chapter.content.replace(chr(10), '<br/>')}</div>
-                </body>
-                </html>
-                """
-                epub_book.add_item(epub_chapter)
-                epub_chapters.append(epub_chapter)
-
-            # 添加默认的NCX和Nav文件
-            epub_book.add_item(epub.EpubNcx())
-            epub_book.add_item(epub.EpubNav())
-
-            # 设置spine
-            epub_book.spine = ["nav"] + epub_chapters
-
-            # 写入文件
-            epub.write_epub(str(file_path), epub_book, {})
-            logger.info(f"EPUB文件生成成功: {file_path}")
-            return file_path
-
-        except ImportError:
-            logger.warning("ebooklib未安装，使用TXT格式代替EPUB")
-            return self._generate_txt(book, chapters, file_path.with_suffix(".txt"))
         except Exception as e:
-            logger.error(f"生成EPUB文件失败: {str(e)}")
-            return self._generate_txt(book, chapters, file_path.with_suffix(".txt"))
+            logger.error(f"优化下载失败: {str(e)}")
+            raise
 
-    def get_sources(self):
-        """获取所有可用书源
+    def _create_download_config(self):
+        """创建下载配置"""
+        from app.core.crawler import DownloadConfig
 
-        Returns:
-            书源列表
-        """
-        sources_list = []
+        config = DownloadConfig()
+        # 提升并发与整体吞吐
+        config.max_concurrent = max(
+            self.max_concurrent_chapters, settings.DOWNLOAD_CONCURRENT_LIMIT
+        )
+        config.retry_times = max(settings.DOWNLOAD_RETRY_TIMES, 3)
+        config.retry_delay = min(settings.DOWNLOAD_RETRY_DELAY, 1.0)
+        config.batch_delay = 0.2  # 减少批次/间隔延迟
+        config.timeout = 90  # 合理的章节超时
+        config.enable_recovery = True
+
+        return config
+
+    async def get_sources(self) -> List[Dict[str, Any]]:
+        """获取所有书源信息（优化版）"""
+        # 检查缓存
+        cached_sources = await self.cache_manager.get("sources_list")
+        if cached_sources:
+            return cached_sources
+
+        sources_data = []
         for source_id, source in self.sources.items():
-            sources_list.append({"id": source_id, "rule": source.rule})
-        return sources_list
+            rule = source.rule
+            source_info = {
+                "id": source_id,
+                "name": rule.get("name", f"书源{source_id}"),
+                "url": rule.get("url", ""),
+                "enabled": rule.get("enabled", True),
+                "search_enabled": bool(rule.get("search")),
+                "download_enabled": bool(rule.get("book") and rule.get("toc")),
+            }
+            sources_data.append(source_info)
+
+        # 缓存结果
+        await self.cache_manager.set("sources_list", sources_data, ttl=3600)
+
+        return sources_data
+
+    async def get_book_detail(self, url: str, source_id: int) -> Optional[Book]:
+        """获取小说详情（优化版）"""
+        # 检查缓存
+        cache_key = self.cache_manager._generate_cache_key(
+            "book_detail", url, source_id
+        )
+        cached_book = await self.cache_manager.get_book_detail(cache_key)
+        if cached_book:
+            return cached_book
+
+        if source_id not in self.sources:
+            logger.error(f"书源 {source_id} 不存在")
+            return None
+
+        try:
+            source = self.sources[source_id]
+            parser = BookParser(source)
+            book = await parser.parse(url)
+
+            if book:
+                # 缓存结果
+                await self.cache_manager.set_book_detail(cache_key, book)
+
+            return book
+        except Exception as e:
+            logger.error(f"获取小说详情失败: {str(e)}")
+            return None
+
+    async def get_toc(self, url: str, source_id: int) -> List[ChapterInfo]:
+        """获取小说目录（优化版）"""
+        # 检查缓存
+        cache_key = self.cache_manager._generate_cache_key("toc", url, source_id)
+        cached_toc = await self.cache_manager.get_toc(cache_key)
+        if cached_toc:
+            return cached_toc
+
+        if source_id not in self.sources:
+            logger.error(f"书源 {source_id} 不存在")
+            return []
+
+        try:
+            source = self.sources[source_id]
+            parser = TocParser(source)
+            toc = await parser.parse(url)
+
+            if toc:
+                # 缓存结果
+                await self.cache_manager.set_toc(cache_key, toc)
+
+            return toc or []
+        except Exception as e:
+            logger.error(f"获取小说目录失败: {str(e)}")
+            return []

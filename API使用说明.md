@@ -78,119 +78,13 @@ python run.py
 }
 ```
 
-### 3. 搜索小说（标准版）
 
-**接口地址：** `GET /api/novels/search`
 
-**请求参数：**
-- `keyword` (必需): 搜索关键词（书名或作者名）
-- `maxResults` (可选): 最大返回结果数，默认30，范围1-100
-
-说明：每个书源最多返回2条结果（内置策略），实际返回不超过 `maxResults`。
-
-**响应示例：**
-```json
-{
-  "code": 200,
-  "message": "success",
-  "data": [
-    {
-      "sourceId": 1,
-      "sourceName": "香书小说",
-      "url": "https://example.com/book/123",
-      "title": "斗破苍穹",
-      "author": "天蚕土豆",
-      "category": "玄幻",
-      "latestChapter": "第一千章 大结局",
-      "lastUpdateTime": "2023-12-25 12:00:00",
-      "status": "已完结",
-      "wordCount": "300万字"
-    }
-  ]
-}
-```
-
-### 4. 获取书籍详情
-
-**接口地址：** `GET /api/novels/detail`
-
-**请求参数：**
-- `url` (必需): 小说详情页URL
-- `sourceId` (可选): 书源ID，默认为1
-
-**响应示例：**
-```json
-{
-  "code": 200,
-  "message": "success",
-  "data": {
-    "url": "https://example.com/book/123",
-    "title": "斗破苍穹",
-    "author": "天蚕土豆",
-    "intro": "这里是小说简介...",
-    "category": "玄幻",
-    "coverUrl": "https://example.com/cover.jpg",
-    "latestChapter": "第一千章 大结局",
-    "lastUpdateTime": "2023-12-25 12:00:00",
-    "status": "已完结",
-    "wordCount": "300万字"
-  }
-}
-```
-
-### 5. 获取章节目录
-
-**接口地址：** `GET /api/novels/toc`
-
-**请求参数：**
-- `url` (必需): 小说详情页URL
-- `sourceId` (可选): 书源ID，默认为1
-
-**响应示例：**
-```json
-{
-  "code": 200,
-  "message": "success",
-  "data": [
-    {
-      "url": "https://example.com/chapter/1",
-      "title": "第一章 废物",
-      "order": 1
-    },
-    {
-      "url": "https://example.com/chapter/2",
-      "title": "第二章 觉醒",
-      "order": 2
-    }
-  ]
-}
-```
-
-### 6. 下载小说（标准版）
-
-**接口地址：** `GET /api/novels/download`
-
-**请求参数：**
-- `url` (必需): 小说详情页URL
-- `sourceId` (可选): 书源ID，默认为1
-- `format` (可选): 下载格式，支持txt、epub，默认为txt
-
-**响应：** 直接返回文件流进行下载
-
-#### 异步下载任务（推荐用于长文本）
-- 启动任务：`POST /api/novels/download/start`（返回 `task_id`）
-- 查询进度：`GET /api/novels/download/progress?task_id=...`
-- 拉取结果：`GET /api/novels/download/result?task_id=...`（完成后返回文件流）
-
-进度数据包含任务状态、完成章节数、错误信息、生成文件路径等。
-
----
-
-## 优化版 API（/api/optimized）
+## API 接口说明（/api/optimized）
 
 引入缓存、并发优化、性能监控与健康检查。
 
-### 1. 搜索小说（优化版）
+### 1. 搜索小说
 **接口地址：** `GET /api/optimized/search`
 
 **请求参数：**
@@ -209,22 +103,29 @@ python run.py
 }
 ```
 
-### 2. 获取书籍详情（优化版）
+### 2. 获取书籍详情
 `GET /api/optimized/detail?url=...&sourceId=1`
 
 返回结构同标准版，额外包含 `meta.duration_ms`、`meta.source_id`。
 
-### 3. 获取章节目录（优化版）
+### 3. 获取章节目录
 `GET /api/optimized/toc?url=...&sourceId=1`
 
 返回结构同标准版，额外包含 `meta.duration_ms`、`meta.total_chapters`。
 
-### 4. 下载小说（优化版）
+### 4. 下载小说
+
+#### 同步下载
 `GET /api/optimized/download?url=...&sourceId=1&format=txt`
 
 直接返回文件流，响应头包含：`X-Download-Duration-MS`、`X-File-Size`、`X-Task-ID`。
 
-### 5. 获取书源列表（优化版）
+#### 异步下载（推荐用于长文本）
+- 启动任务：`POST /api/optimized/download/start`（返回 `task_id`）
+- 查询进度：`GET /api/optimized/download/progress?task_id=...`
+- 拉取结果：`GET /api/optimized/download/result?task_id=...`（完成后返回文件流）
+
+### 5. 获取书源列表
 `GET /api/optimized/sources`
 
 返回结构同标准版，额外包含 `meta`（耗时、总书源数）。

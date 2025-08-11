@@ -1,410 +1,545 @@
 import asyncio
-import time
-from pathlib import Path
-from typing import List
+import json
+import logging
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import aiohttp
+from bs4 import BeautifulSoup
 
 from app.core.config import settings
 from app.core.source import Source
 from app.models.book import Book
 from app.models.chapter import Chapter, ChapterInfo
-from app.models.search import SearchResult
 from app.parsers.book_parser import BookParser
 from app.parsers.chapter_parser import ChapterParser
-from app.parsers.search_parser import SearchParser
 from app.parsers.toc_parser import TocParser
+from app.utils.content_validator import ChapterValidator
+from app.utils.download_monitor import DownloadMonitor
 from app.utils.file import FileUtils
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DownloadConfig:
+    """下载配置"""
+
+    max_concurrent: int = 3  # 降低并发数以提高稳定性
+    retry_times: int = 5  # 增加重试次数
+    retry_delay: float = 2.0
+    batch_delay: float = 1.5  # 增加批次间延迟
+    timeout: int = 500  # 增加超时时间
+    enable_recovery: bool = True  # 启用恢复机制
+    progress_callback: Optional[callable] = None
 
 
 class Crawler:
-    """爬虫类，提供小说搜索、获取详情、获取目录和下载功能"""
+    """爬虫，提供稳定的下载功能"""
 
     def __init__(self, config=None):
         """初始化爬虫
 
         Args:
-            config: 配置信息，默认使用settings
+            config: 下载配置
         """
         self.config = config or settings
-        self.book_dir = None
-        self.digit_count = 0
+        self.download_config = DownloadConfig()
+        self.monitor = DownloadMonitor()
+        self.validator = ChapterValidator()
+        self.session_pool = {}  # 会话池
+        self.failed_chapters = []  # 失败章节记录
 
-    async def search(self, keyword: str) -> List[SearchResult]:
-        """搜索小说
-
-        Args:
-            keyword: 搜索关键词（书名或作者名）
-
-        Returns:
-            搜索结果列表
-        """
-        print(f"<== 正在搜索: {keyword}...")
-        start_time = time.time()
-
-        # 获取所有可搜索的书源
-        sources = self._get_searchable_sources()
-
-        # 创建任务列表
-        tasks = []
-        for source in sources:
-            search_parser = SearchParser(source)
-            tasks.append(search_parser.parse(keyword))
-
-        # 并发执行搜索
-        results = await asyncio.gather(*tasks)
-
-        # 合并结果
-        flat_results = []
-        for result_list in results:
-            flat_results.extend(result_list)
-
-        # 排序结果
-        sorted_results = self._sort_search_results(flat_results, keyword)
-
-        end_time = time.time()
-        print(
-            f"<== 搜索到 {len(sorted_results)} 条记录，"
-            f"耗时 {end_time - start_time:.2f} 秒"
-        )
-
-        return sorted_results
-
-    async def get_book_detail(self, url: str, source_id: int) -> Book:
-        """获取小说详情
+    async def download(
+        self,
+        url: str,
+        source_id: int,
+        format: str = "txt",
+        task_id: Optional[str] = None,
+    ) -> str:
+        """下载小说（增强版）
 
         Args:
             url: 小说详情页URL
             source_id: 书源ID
-
-        Returns:
-            小说详情
-        """
-        source = Source(source_id)
-        book_parser = BookParser(source)
-        return await book_parser.parse(url)
-
-    async def get_toc(
-        self, url: str, source_id: int, start: int = 1, end: int = None
-    ) -> List[ChapterInfo]:
-        """获取小说目录
-
-        Args:
-            url: 小说详情页URL
-            source_id: 书源ID
-            start: 起始章节，从1开始
-            end: 结束章节，默认为None表示全部章节
-
-        Returns:
-            章节列表
-        """
-        source = Source(source_id)
-        toc_parser = TocParser(source)
-        return await toc_parser.parse(url, start, end or float("inf"))
-
-    async def download(self, url: str, source_id: int, format: str = "txt") -> str:
-        """下载小说
-
-        Args:
-            url: 小说详情页URL
-            source_id: 书源ID
-            format: 下载格式，支持txt、epub
+            format: 下载格式
 
         Returns:
             下载文件路径
         """
-        print(f"<== 开始下载小说: {url}")
+        logger.info(f"开始增强版下载: {url}")
         start_time = time.time()
 
-        # 获取小说详情
-        book = await self.get_book_detail(url, source_id)
-        if not book:
-            raise ValueError("获取小说详情失败")
+        try:
+            # 初始化进度跟踪
+            from app.utils.progress_tracker import progress_tracker
 
-        print(f"<== 获取到小说: {book.title}")
+            # 1. 获取小说详情（带重试和多源支持）
+            book = await self._get_book_detail_with_fallback(url, source_id)
+            if not book:
+                if task_id:
+                    progress_tracker.complete_task(task_id, False, "获取小说详情失败")
+                raise ValueError("获取小说详情失败")
 
-        # 获取目录
-        toc = await self.get_toc(url, source_id)
-        if not toc:
-            raise ValueError("获取小说目录失败")
+            logger.info(f"获取到小说: {book.title} - {book.author}")
 
-        print(f"<== 获取到 {len(toc)} 个章节")
+            # 2. 获取目录（带重试和多种策略）
+            toc = await self._get_toc_with_fallback(url, source_id)
+            if not toc:
+                if task_id:
+                    progress_tracker.complete_task(task_id, False, "获取小说目录失败")
+                raise ValueError("获取小说目录失败")
 
-        # 设置数字位数和目录名
-        self.digit_count = len(str(len(toc)))
-        
-        # 创建下载目录，格式：书名 (作者) 格式
+            logger.info(f"获取到 {len(toc)} 个章节")
+
+            # 初始化或更新进度跟踪
+            if task_id:
+                progress_tracker.update_progress(task_id, 0, "开始下载", 0)
+                # 更新总章节数
+                progress = progress_tracker.get_progress(task_id)
+                if progress:
+                    progress.total_chapters = len(toc)
+
+            # 3. 创建下载目录
+            download_dir = await self._create_download_directory(book, format)
+
+            # 4. 检查是否有未完成的下载
+            if self.download_config.enable_recovery:
+                existing_chapters = self._check_existing_chapters(download_dir)
+                logger.info(f"发现已下载章节: {len(existing_chapters)} 个")
+            else:
+                existing_chapters = {}
+
+            # 5. 下载章节
+            chapters = await self._download_chapters(
+                toc, source_id, existing_chapters, download_dir, task_id
+            )
+
+            logger.info(f"成功下载 {len(chapters)} 个章节")
+
+            # 6. 生成最终文件
+            file_path = await self._generate_final_file(
+                book, chapters, download_dir, format
+            )
+
+            # 6.1 记录生成文件路径
+            if task_id:
+                progress_tracker.set_file_path(task_id, str(file_path))
+
+            # 7. 清理临时文件
+            await self._cleanup_temp_files(download_dir)
+
+            end_time = time.time()
+            logger.info(f"下载完成，耗时 {end_time - start_time:.2f} 秒")
+
+            # 完成任务进度跟踪
+            if task_id:
+                progress_tracker.complete_task(task_id, True)
+
+            return str(file_path)
+
+        except Exception as e:
+            logger.error(f"下载失败: {str(e)}")
+            # 标记任务失败
+            if task_id:
+                progress_tracker.complete_task(task_id, False, str(e))
+            raise
+        finally:
+            # 清理会话池
+            await self._cleanup_sessions()
+
+    async def _get_book_detail_with_fallback(
+        self, url: str, source_id: int
+    ) -> Optional[Book]:
+        """带备用源的获取书籍详情"""
+        # 首先尝试指定的书源
+        book = await self._get_book_detail_with_retry(url, source_id)
+        if book:
+            return book
+
+        # 如果失败，尝试其他可用书源
+        logger.warning(f"书源 {source_id} 获取详情失败，尝试其他书源")
+
+        # 这里可以添加书源切换逻辑
+        # 暂时返回None，让上层处理
+        return None
+
+    async def _get_book_detail_with_retry(
+        self, url: str, source_id: int
+    ) -> Optional[Book]:
+        """带重试的获取书籍详情"""
+        for attempt in range(self.download_config.retry_times):
+            try:
+                source = Source(source_id)
+                parser = BookParser(source)
+                book = await parser.parse(url)
+                if book:
+                    return book
+            except Exception as e:
+                logger.warning(f"获取书籍详情失败 (尝试 {attempt + 1}): {str(e)}")
+                if attempt < self.download_config.retry_times - 1:
+                    await asyncio.sleep(
+                        self.download_config.retry_delay * (attempt + 1)
+                    )
+
+        return None
+
+    async def _get_toc_with_fallback(
+        self, url: str, source_id: int
+    ) -> List[ChapterInfo]:
+        """带备用源的获取目录"""
+        # 首先尝试指定的书源
+        toc = await self._get_toc_with_retry(url, source_id)
+        if toc:
+            return toc
+
+        # 如果失败，尝试其他可用书源
+        logger.warning(f"书源 {source_id} 获取目录失败，尝试其他书源")
+
+        # 这里可以添加书源切换逻辑
+        return []
+
+    async def _get_toc_with_retry(self, url: str, source_id: int) -> List[ChapterInfo]:
+        """带重试和多策略的获取目录"""
+        source = Source(source_id)
+        parser = TocParser(source)
+
+        # 多次尝试获取目录
+        for attempt in range(self.download_config.retry_times):
+            try:
+                toc = await parser.parse(url)
+                if toc:
+                    logger.info(f"目录解析成功，获取到 {len(toc)} 个章节")
+                    return toc
+            except Exception as e:
+                logger.warning(f"目录解析失败 (尝试 {attempt + 1}): {str(e)}")
+                if attempt < self.download_config.retry_times - 1:
+                    await asyncio.sleep(
+                        self.download_config.retry_delay * (attempt + 1)
+                    )
+
+        return []
+
+    async def _parse_toc_with_selector(
+        self, url: str, source: Source, selector: str
+    ) -> List[ChapterInfo]:
+        """使用指定选择器解析目录"""
+        # 临时修改书源规则
+        original_rule = source.rule.get("toc", {}).copy()
+        source.rule["toc"]["list"] = selector
+
+        try:
+            parser = TocParser(source)
+            return await parser.parse(url)
+        finally:
+            # 恢复原始规则
+            source.rule["toc"] = original_rule
+
+    async def _create_download_directory(self, book: Book, format: str) -> Path:
+        """创建下载目录"""
         safe_title = FileUtils.sanitize_filename(book.title)
         safe_author = FileUtils.sanitize_filename(book.author)
-        self.book_dir = f"{safe_title} ({safe_author}) {format.upper()}"
-        
-        download_base_dir = Path(self.config.DOWNLOAD_PATH)
-        book_download_dir = download_base_dir / self.book_dir
-        
-        # 创建目录
-        os.makedirs(book_download_dir, exist_ok=True)
-        
-        if not book_download_dir.exists():
-            raise ValueError(f"创建下载目录失败: {book_download_dir}")
+        dir_name = f"{safe_title} ({safe_author}) {format.upper()}"
 
-        print(f"<== 下载目录: {book_download_dir}")
+        download_dir = Path(self.config.DOWNLOAD_PATH) / dir_name
+        download_dir.mkdir(parents=True, exist_ok=True)
 
-        # 并发下载章节
-        max_concurrent = self.config.DOWNLOAD_CONCURRENT_LIMIT
+        logger.info(f"下载目录: {download_dir}")
+        return download_dir
+
+    def _check_existing_chapters(self, download_dir: Path) -> Dict[str, str]:
+        """检查已存在的章节文件"""
+        existing = {}
+        temp_dir = download_dir / "temp"
+        if temp_dir.exists():
+            for file_path in temp_dir.glob("*.txt"):
+                # 文件名是经过sanitize的，需要映射回原始标题
+                safe_filename = file_path.stem
+                existing[safe_filename] = str(file_path)
+        return existing
+
+    async def _download_chapters(
+        self,
+        toc: List[ChapterInfo],
+        source_id: int,
+        existing_chapters: Dict[str, str],
+        download_dir: Path,
+        task_id: Optional[str] = None,
+    ) -> List[Chapter]:
+        """章节下载"""
+        self.monitor.start_download(len(toc))
+
         source = Source(source_id)
-        chapter_parser = ChapterParser(source)
-        
-        print(f"<== 开始下载 {len(toc)} 章，最大并发数: {max_concurrent}")
-        
-        # 分批处理章节
+        parser = ChapterParser(source)
         chapters = []
-        for i in range(0, len(toc), max_concurrent):
-            batch = toc[i:i + max_concurrent]
-            print(f"<== 处理第 {i+1}-{min(i+max_concurrent, len(toc))} 章")
-            
-            # 并发下载当前批次
-            tasks = []
-            for chapter_info in batch:
-                task = self._download_single_chapter(chapter_parser, chapter_info)
-                tasks.append(task)
-            
-            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # 处理结果
-            for j, result in enumerate(batch_results):
-                chapter_info = batch[j]
-                if isinstance(result, Exception):
-                    print(f"<== 章节下载失败: {chapter_info.title}, 错误: {str(result)}")
-                elif result:
+        self.failed_chapters = []
+
+        # 创建临时目录（按书籍隔离，避免内容混淆）
+        temp_dir = Path(download_dir) / "temp"
+        temp_dir.mkdir(exist_ok=True)
+
+        logger.info(
+            f"开始下载 {len(toc)} 章，最大并发数: {self.download_config.max_concurrent}"
+        )
+
+        # 使用有界并发控制（不按批次，持续投递任务），提升总吞吐
+        semaphore = asyncio.Semaphore(self.download_config.max_concurrent)
+
+        async def download_one(chapter_info: ChapterInfo) -> Optional[Chapter]:
+            safe_filename = FileUtils.sanitize_filename(chapter_info.title)
+            if safe_filename in existing_chapters:
+                logger.info(f"跳过已存在章节: {chapter_info.title}")
+                return None
+            async with semaphore:
+                result = await self._download_single_chapter(
+                    parser, chapter_info, temp_dir
+                )
+                if result:
                     chapters.append(result)
-                    print(f"<== 章节下载成功: {result.title}")
-            
-            # 批次间延迟
-            if i + max_concurrent < len(toc):
-                await asyncio.sleep(0.5)
+                    # 更新进度
+                    if self.download_config.progress_callback:
+                        self.download_config.progress_callback(len(chapters), len(toc))
+                    if task_id:
+                        from app.utils.progress_tracker import progress_tracker
 
-        print(f"<== 成功下载 {len(chapters)} 个章节")
+                        progress_tracker.update_progress(
+                            task_id,
+                            len(chapters),
+                            result.title,
+                            len(self.failed_chapters),
+                        )
+                return result
 
-        # 生成最终文件
+        tasks = [download_one(ch) for ch in toc]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 处理失败的章节
+        if self.failed_chapters:
+            logger.info(f"重试失败的 {len(self.failed_chapters)} 个章节")
+            retry_chapters = await self._retry_failed_chapters(parser, temp_dir)
+            chapters.extend(retry_chapters)
+
+        # 从现有文件加载章节
+        for safe_filename, file_path in existing_chapters.items():
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    # 从toc中找到对应章节的正确order和原始标题
+                    correct_order = 0
+                    original_title = safe_filename  # 默认使用安全文件名
+                    for toc_chapter in toc:
+                        if FileUtils.sanitize_filename(toc_chapter.title) == safe_filename:
+                            correct_order = toc_chapter.order
+                            original_title = toc_chapter.title
+                            break
+                    chapter = Chapter(title=original_title, content=content, order=correct_order)
+                    chapters.append(chapter)
+            except Exception as e:
+                logger.warning(f"加载已存在章节失败 {safe_filename}: {str(e)}")
+
+        # 按顺序排序
+        chapters.sort(key=lambda x: x.order or 0)
+
+        return chapters
+
+    async def _download_single_chapter(
+        self, parser: ChapterParser, chapter_info: ChapterInfo, temp_dir: Path
+    ) -> Optional[Chapter]:
+        """单章节下载"""
+        # 使用安全的文件名
+        safe_filename = FileUtils.sanitize_filename(chapter_info.title)
+        chapter_file = temp_dir / f"{safe_filename}.txt"
+
+        for attempt in range(self.download_config.retry_times):
+            try:
+                self.monitor.chapter_started(chapter_info.title, chapter_info.url)
+
+                # 下载章节
+                chapter = await parser.parse(
+                    chapter_info.url, chapter_info.title, chapter_info.order
+                )
+
+                if not chapter or not chapter.content:
+                    raise ValueError("章节内容为空")
+
+                # 验证内容质量
+                if len(chapter.content) < settings.MIN_CHAPTER_LENGTH:
+                    raise ValueError(f"章节内容过短: {len(chapter.content)} 字符")
+
+                quality_score = self.validator.get_chapter_quality_score(
+                    chapter.content
+                )
+                if quality_score < 0.3:  # 质量阈值
+                    raise ValueError(f"章节质量过低: {quality_score}")
+
+                # 保存到临时文件
+                with open(chapter_file, "w", encoding="utf-8") as f:
+                    f.write(chapter.content)
+
+                # 设置章节顺序
+                chapter.order = chapter_info.order
+
+                self.monitor.chapter_completed(
+                    chapter_info.title, len(chapter.content), quality_score
+                )
+
+                logger.debug(
+                    f"章节下载成功: {chapter.title} ({len(chapter.content)} 字符)"
+                )
+                return chapter
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.warning(
+                    f"章节下载失败 (尝试 {attempt + 1}): {chapter_info.title} - {error_msg}"
+                )
+
+                if attempt < self.download_config.retry_times - 1:
+                    await asyncio.sleep(
+                        self.download_config.retry_delay * (attempt + 1)
+                    )
+                else:
+                    # 记录失败章节
+                    self.failed_chapters.append(chapter_info)
+                    self.monitor.chapter_failed(chapter_info.title, error_msg)
+
+        return None
+
+    async def _retry_failed_chapters(
+        self, parser: ChapterParser, temp_dir: Path
+    ) -> List[Chapter]:
+        """重试失败的章节"""
+        retry_chapters = []
+
+        for chapter_info in self.failed_chapters:
+            try:
+                logger.info(f"重试章节: {chapter_info.title}")
+
+                # 使用更长的超时时间
+                chapter = await asyncio.wait_for(
+                    parser.parse(chapter_info.url),
+                    timeout=self.download_config.timeout * 2,
+                )
+
+                if chapter and chapter.content:
+                    chapter.order = chapter_info.order
+                    retry_chapters.append(chapter)
+
+                    # 保存到临时文件
+                    safe_filename = FileUtils.sanitize_filename(chapter_info.title)
+                    chapter_file = temp_dir / f"{safe_filename}.txt"
+                    with open(chapter_file, "w", encoding="utf-8") as f:
+                        f.write(chapter.content)
+
+                    logger.info(f"重试成功: {chapter.title}")
+
+            except Exception as e:
+                logger.error(f"重试失败: {chapter_info.title} - {str(e)}")
+
+        return retry_chapters
+
+    async def _generate_final_file(
+        self, book: Book, chapters: List[Chapter], download_dir: Path, format: str
+    ) -> Path:
+        """生成最终文件"""
         if format == "txt":
-            file_path = self._generate_txt_file(book, chapters, book_download_dir)
+            return await self._generate_txt_file_async(book, chapters, download_dir)
         elif format == "epub":
-            file_path = self._generate_epub_file(book, chapters, book_download_dir)
+            return await self._generate_epub_file_async(book, chapters, download_dir)
         else:
             raise ValueError(f"不支持的格式: {format}")
 
-        end_time = time.time()
-        print(f"<== 下载完成，耗时 {end_time - start_time:.2f} 秒")
-
-        return str(file_path)
-
-    async def _download_single_chapter(
-        self, chapter_parser: ChapterParser, chapter_info: ChapterInfo
-    ) -> Chapter:
-        """下载单个章节
-
-        Args:
-            chapter_parser: 章节解析器
-            chapter_info: 章节信息
-
-        Returns:
-            章节对象
-        """
-        try:
-            chapter = await chapter_parser.parse(chapter_info.url)
-            if chapter:
-                # 保存章节到文件
-                self._save_chapter_file(chapter)
-            return chapter
-        except Exception as e:
-            print(f"<== 章节下载异常: {chapter_info.title}, 错误: {str(e)}")
-            return None
-
-    def _save_chapter_file(self, chapter: Chapter):
-        """保存章节到文件
-
-        Args:
-            chapter: 章节对象
-        """
-        try:
-            # 生成文件路径
-            file_path = self._generate_chapter_path(chapter)
-            
-            # 确保目录存在
-            os.makedirs(file_path.parent, exist_ok=True)
-            
-            # 写入文件
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(chapter.content)
-                
-        except Exception as e:
-            print(f"<== 保存章节文件失败: {chapter.title}, 错误: {str(e)}")
-
-    def _generate_chapter_path(self, chapter: Chapter) -> Path:
-        """生成章节文件路径
-
-        Args:
-            chapter: 章节对象
-
-        Returns:
-            文件路径
-        """
-        download_base_dir = Path(self.config.DOWNLOAD_PATH)
-        book_download_dir = download_base_dir / self.book_dir
-        
-        # 文件名下划线前的数字前补零
-        order_str = str(chapter.order).zfill(self.digit_count)
-        
-        # 生成文件名
-        safe_title = FileUtils.sanitize_filename(chapter.title)
-        filename = f"{order_str}_{safe_title}.txt"
-        
-        return book_download_dir / filename
-
-    def _generate_txt_file(
+    async def _generate_txt_file_async(
         self, book: Book, chapters: List[Chapter], download_dir: Path
     ) -> Path:
-        """生成TXT文件
-
-        Args:
-            book: 小说信息
-            chapters: 章节列表
-            download_dir: 下载目录
-
-        Returns:
-            文件路径
-        """
-        # 生成文件名
-        safe_title = FileUtils.sanitize_filename(book.title)
-        safe_author = FileUtils.sanitize_filename(book.author)
-        filename = f"{safe_title}_{safe_author}.txt"
+        """异步生成TXT文件"""
+        filename = f"{FileUtils.sanitize_filename(book.title)}.txt"
         file_path = download_dir / filename
 
-        with open(file_path, "w", encoding="utf-8") as f:
-            # 写入小说信息
-            f.write(f"书名：{book.title}\n")
-            f.write(f"作者：{book.author}\n")
-            f.write(f"简介：{book.intro}\n")
-            f.write(f"状态：{book.status}\n")
-            f.write(f"分类：{book.category}\n")
-            f.write(f"字数：{book.word_count}\n")
-            f.write(f"更新时间：{book.update_time}\n")
-            f.write("=" * 50 + "\n\n")
-
-            # 按章节顺序排序
-            chapters.sort(key=lambda x: x.order)
+        def write_file():
+            # 确保章节按顺序排列
+            chapters.sort(key=lambda x: x.order or 0)
             
-            # 写入章节内容
-            for chapter in chapters:
-                f.write(f"{chapter.title}\n")
-                f.write("-" * 30 + "\n")
-                f.write(f"{chapter.content}\n\n")
+            with open(file_path, "w", encoding="utf-8") as f:
+                # 写入书籍信息
+                f.write(f"书名：{book.title}\n")
+                f.write(f"作者：{book.author}\n")
+                if book.intro:
+                    f.write(f"简介：{book.intro}\n")
+                f.write(f"章节数：{len(chapters)}\n")
+                f.write("=" * 50 + "\n\n")
 
+                # 写入章节内容
+                for chapter in chapters:
+                    f.write(f"第{chapter.order}章 {chapter.title}\n")
+                    f.write("-" * 30 + "\n")
+                    f.write(chapter.content)
+                    f.write("\n\n")
+
+        # 在线程池中执行文件写入
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            await loop.run_in_executor(executor, write_file)
+
+        logger.info(f"TXT文件生成完成: {file_path}")
         return file_path
 
-    def _generate_epub_file(
+    async def _generate_epub_file_async(
         self, book: Book, chapters: List[Chapter], download_dir: Path
     ) -> Path:
-        """生成EPUB文件
+        """异步生成EPUB文件"""
+        from app.utils.epub_generator import EPUBGenerator
 
-        Args:
-            book: 小说信息
-            chapters: 章节列表
-            download_dir: 下载目录
+        # 生成安全的文件名
+        safe_filename = FileUtils.sanitize_filename(f"{book.title}_{book.author}")
+        epub_path = download_dir / f"{safe_filename}.epub"
 
-        Returns:
-            文件路径
-        """
-        try:
-            from ebooklib import epub
+        def generate_epub():
+            generator = EPUBGenerator()
+            return generator.generate(book, chapters, str(epub_path))
 
-            # 生成文件名
-            safe_title = FileUtils.sanitize_filename(book.title)
-            safe_author = FileUtils.sanitize_filename(book.author)
-            filename = f"{safe_title}_{safe_author}.epub"
-            file_path = download_dir / filename
+        # 在线程池中执行EPUB生成以避免阻塞
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result_path = await loop.run_in_executor(executor, generate_epub)
 
-            # 创建EPUB书籍
-            epub_book = epub.EpubBook()
-            epub_book.set_title(book.title)
-            epub_book.set_language("zh-CN")
-            epub_book.add_author(book.author)
+        logger.info(f"EPUB文件生成完成: {result_path}")
+        return Path(result_path)
 
-            # 添加章节
-            chapters_epub = []
-            for chapter in chapters:
-                chapter_epub = epub.EpubHtml(
-                    title=chapter.title,
-                    file_name=f"chapter_{chapter.order}.xhtml",
-                    content=(f"<h1>{chapter.title}</h1><p>{chapter.content}</p>"),
-                )
-                epub_book.add_item(chapter_epub)
-                chapters_epub.append(chapter_epub)
-
-            # 设置目录
-            epub_book.toc = chapters_epub
-            epub_book.spine = ["nav"] + chapters_epub
-
-            # 生成EPUB文件
-            epub.write_epub(str(file_path), epub_book)
-
-            return file_path
-        except ImportError:
-            raise ValueError("生成EPUB文件需要安装ebooklib库")
-        except Exception as e:
-            raise ValueError(f"生成EPUB文件失败: {e}")
-
-    def _get_searchable_sources(self) -> List[Source]:
-        """获取所有可搜索的书源
-
-        Returns:
-            书源列表
-        """
-        sources = []
-        rules_dir = Path(self.config.RULES_PATH)
-
-        if not rules_dir.exists():
-            print(f"<== 警告: 规则目录不存在: {rules_dir}")
-            return sources
-
-        for rule_file in rules_dir.glob("rule-*.json"):
+    async def _cleanup_temp_files(self, download_dir: Path):
+        """清理临时文件"""
+        temp_dir = download_dir / "temp"
+        if temp_dir.exists():
             try:
-                source = Source.from_rule_file(rule_file)
-                if source.rule.get("search"):
-                    sources.append(source)
+                import shutil
+
+                shutil.rmtree(temp_dir)
+                logger.info("临时文件清理完成")
             except Exception as e:
-                print(f"<== 加载书源失败 {rule_file}: {e}")
+                logger.warning(f"清理临时文件失败: {str(e)}")
 
-        return sources
+    async def _cleanup_sessions(self):
+        """清理会话池"""
+        for session in self.session_pool.values():
+            try:
+                await session.close()
+            except Exception as e:
+                logger.warning(f"关闭会话失败: {str(e)}")
+        self.session_pool.clear()
 
-    def _sort_search_results(
-        self, results: List[SearchResult], keyword: str
-    ) -> List[SearchResult]:
-        """排序搜索结果
-
-        Args:
-            results: 搜索结果列表
-            keyword: 搜索关键词
-
-        Returns:
-            排序后的搜索结果
-        """
-
-        def score_result(result: SearchResult) -> int:
-            score = 0
-            title = result.title.lower()
-            author = result.author.lower()
-            keyword_lower = keyword.lower()
-
-            # 标题完全匹配
-            if keyword_lower in title:
-                score += 100
-            # 作者匹配
-            if keyword_lower in author:
-                score += 50
-            # 标题开头匹配
-            if title.startswith(keyword_lower):
-                score += 30
-
-            return score
-
-        return sorted(results, key=score_result, reverse=True)
+    def get_download_progress(self) -> Dict[str, Any]:
+        """获取下载进度信息"""
+        progress = self.monitor.get_progress()
+        return {
+            "total_chapters": progress.total_chapters,
+            "completed_chapters": progress.completed_chapters,
+            "failed_chapters": progress.failed_chapters,
+            "progress_percentage": progress.progress_percentage,
+            "success_rate": progress.success_rate,
+            "elapsed_time": progress.elapsed_time,
+            "average_speed": progress.average_speed,
+        }

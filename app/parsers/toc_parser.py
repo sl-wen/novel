@@ -69,6 +69,11 @@ class TocParser:
         if self.toc_rule.get("has_pages", False) or self.toc_rule.get("pagination", False):
             logger.info("处理目录分页...")
             additional_chapters = await self._handle_pagination(toc_url)
+            # 重新分配章节顺序以确保连续性
+            current_order = len(chapters) + 1
+            for chapter in additional_chapters:
+                chapter.order = current_order
+                current_order += 1
             chapters.extend(additional_chapters)
 
         # 数据清洗和验证

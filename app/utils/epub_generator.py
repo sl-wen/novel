@@ -35,6 +35,9 @@ class EPUBGenerator:
         try:
             # 确保输出目录存在
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            # 确保章节按顺序排列
+            chapters.sort(key=lambda x: x.order or 0)
 
             with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as epub_zip:
                 # 1. 添加mimetype文件

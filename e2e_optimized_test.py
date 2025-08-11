@@ -46,7 +46,7 @@ def test_optimized_direct_download(url: str, source_id: int):
 def test_polling_download(url: str, source_id: int):
     print("[3] Async download with progress polling...")
     start = requests.post(
-        f"{BASE}/api/novels/download/start",
+        f"{BASE}/api/optimized/download/start",
         params={"url": url, "sourceId": source_id, "format": "txt"},
         timeout=120,
     )
@@ -60,7 +60,7 @@ def test_polling_download(url: str, source_id: int):
     for _ in range(120):  # up to ~4 minutes
         time.sleep(2)
         pr = requests.get(
-            f"{BASE}/api/novels/download/progress",
+            f"{BASE}/api/optimized/download/progress",
             params={"task_id": task_id},
             timeout=30,
         )
@@ -74,7 +74,7 @@ def test_polling_download(url: str, source_id: int):
     assert status == "completed", f"status={status}"
 
     rr = requests.get(
-        f"{BASE}/api/novels/download/result",
+        f"{BASE}/api/optimized/download/result",
         params={"task_id": task_id},
         stream=True,
         timeout=300,

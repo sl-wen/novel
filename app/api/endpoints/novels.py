@@ -1,25 +1,32 @@
 import logging
 import os
+import time
+from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.core.config import settings
 from app.models.search import SearchResponse
 from app.services.novel_service import NovelService
+from app.utils.cache_manager import cache_manager
+from app.utils.enhanced_http_client import http_client
+from app.utils.performance_monitor import monitor_performance, performance_monitor
 
 # 配置日志
 logger = logging.getLogger(__name__)
 
 # 创建路由
-router = APIRouter(prefix="/novels", tags=["novels"])
+router = APIRouter(prefix="/optimized", tags=["novels"])
 
 # 创建服务实例
 novel_service = NovelService()
 
 
 @router.get("/search", response_model=SearchResponse)
+@monitor_performance("search")
 async def search_novels(
+    request: Request,
     keyword: str = Query(None, description="搜索关键词（书名或作者名）"),
     maxResults: int = Query(
         30,
@@ -29,34 +36,49 @@ async def search_novels(
     ),
 ):
     """
-    根据关键词搜索小说
-    """
-    try:
-        logger.info(f"开始搜索小说，关键词：{keyword}，maxResults={maxResults}")
-        results = await novel_service.search(keyword, max_results=maxResults)
-        logger.info(f"搜索完成，找到 {len(results)} 条结果")
+    小说搜索API
 
-        # 尝试序列化结果，如果出现bookName错误则跳过有问题的结果
-        try:
-            return {"code": 200, "message": "success", "data": results}
-        except AttributeError as e:
-            if "bookName" in str(e):
-                logger.warning(
-                    f"搜索结果序列化时出现bookName错误，跳过有问题的结果: {str(e)}"
-                )
-                # 过滤掉有问题的结果
-                filtered_results = []
-                for result in results:
-                    try:
-                        # 尝试访问bookName属性，如果失败则跳过
-                        _ = getattr(result, "bookName", None)
-                        filtered_results.append(result)
-                    except AttributeError:
-                        logger.warning(f"跳过有bookName问题的搜索结果")
-                        continue
-                return {"code": 200, "message": "success", "data": filtered_results}
-            else:
-                raise e
+    特性:
+    - 智能缓存：自动缓存搜索结果
+    - 并发搜索：同时搜索多个书源
+    - 超时控制：避免长时间等待
+    - 结果去重：智能去除重复结果
+    - 性能监控：实时监控搜索性能
+    """
+    if not keyword:
+        raise HTTPException(status_code=400, detail="搜索关键词不能为空")
+
+    start_time = time.time()
+
+    try:
+        async with performance_monitor.monitor_operation(
+            "search_novels", {"keyword": keyword, "max_results": maxResults}
+        ):
+            logger.info(f"开始搜索，关键词：{keyword}，maxResults={maxResults}")
+
+            # 使用搜索服务
+            results = await novel_service.search(
+                keyword, max_results=maxResults
+            )
+
+            end_time = time.time()
+            duration_ms = (end_time - start_time) * 1000
+
+            logger.info(
+                f"搜索完成，找到 {len(results)} 条结果，耗时 {duration_ms:.1f}ms"
+            )
+
+            return {
+                "code": 200,
+                "message": "success",
+                "data": results,
+                "meta": {
+                    "duration_ms": round(duration_ms, 1),
+                    "total_results": len(results),
+                    "cached": False,  # 这里可以根据实际情况设置
+                },
+            }
+
     except Exception as e:
         logger.error(f"搜索失败: {str(e)}")
         return JSONResponse(
@@ -65,23 +87,55 @@ async def search_novels(
                 "code": 500,
                 "message": f"搜索失败: {str(e)}",
                 "data": None,
+                "meta": {
+                    "duration_ms": round((time.time() - start_time) * 1000, 1),
+                    "error": str(e),
+                },
             },
         )
 
 
 @router.get("/detail")
+@monitor_performance("get_detail")
 async def get_novel_detail(
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
 ):
     """
-    获取小说详情
+    获取小说详情API
+
+    特性:
+    - 智能缓存：缓存书籍详情
+    - 快速响应：优化网络请求
+    - 错误重试：自动重试失败请求
     """
+    start_time = time.time()
+
     try:
-        logger.info(f"开始获取小说详情，URL：{url}，书源ID：{sourceId}")
-        book = await novel_service.get_book_detail(url, sourceId)
-        logger.info(f"获取小说详情成功：{book.title}")
-        return {"code": 200, "message": "success", "data": book}
+        async with performance_monitor.monitor_operation(
+            "get_book_detail", {"url": url, "source_id": sourceId}
+        ):
+            logger.info(f"开始获取小说详情，URL：{url}，书源ID：{sourceId}")
+
+            book = await novel_service.get_book_detail(url, sourceId)
+
+            if not book:
+                raise HTTPException(status_code=404, detail="未找到小说详情")
+
+            end_time = time.time()
+            duration_ms = (end_time - start_time) * 1000
+
+            logger.info(f"获取小说详情成功：{book.title}，耗时 {duration_ms:.1f}ms")
+
+            return {
+                "code": 200,
+                "message": "success",
+                "data": book,
+                "meta": {"duration_ms": round(duration_ms, 1), "source_id": sourceId},
+            }
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取小说详情失败: {str(e)}")
         return JSONResponse(
@@ -90,23 +144,54 @@ async def get_novel_detail(
                 "code": 500,
                 "message": f"获取小说详情失败: {str(e)}",
                 "data": None,
+                "meta": {
+                    "duration_ms": round((time.time() - start_time) * 1000, 1),
+                    "error": str(e),
+                },
             },
         )
 
 
 @router.get("/toc")
+@monitor_performance("get_toc")
 async def get_novel_toc(
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
 ):
     """
-    获取小说目录
+    获取小说目录API
+
+    特性:
+    - 智能缓存：缓存目录信息
+    - 并发处理：快速解析目录
+    - 数据验证：验证目录完整性
     """
+    start_time = time.time()
+
     try:
-        logger.info(f"开始获取小说目录，URL：{url}，书源ID：{sourceId}")
-        toc = await novel_service.get_toc(url, sourceId)
-        logger.info(f"获取小说目录成功，共 {len(toc)} 章")
-        return {"code": 200, "message": "success", "data": toc}
+        async with performance_monitor.monitor_operation(
+            "get_toc", {"url": url, "source_id": sourceId}
+        ):
+            logger.info(f"开始获取小说目录，URL：{url}，书源ID：{sourceId}")
+
+            toc = await novel_service.get_toc(url, sourceId)
+
+            end_time = time.time()
+            duration_ms = (end_time - start_time) * 1000
+
+            logger.info(f"获取小说目录成功，共 {len(toc)} 章，耗时 {duration_ms:.1f}ms")
+
+            return {
+                "code": 200,
+                "message": "success",
+                "data": toc,
+                "meta": {
+                    "duration_ms": round(duration_ms, 1),
+                    "total_chapters": len(toc),
+                    "source_id": sourceId,
+                },
+            }
+
     except Exception as e:
         logger.error(f"获取小说目录失败: {str(e)}")
         return JSONResponse(
@@ -115,107 +200,305 @@ async def get_novel_toc(
                 "code": 500,
                 "message": f"获取小说目录失败: {str(e)}",
                 "data": None,
+                "meta": {
+                    "duration_ms": round((time.time() - start_time) * 1000, 1),
+                    "error": str(e),
+                },
             },
         )
 
 
 @router.get("/download")
+@monitor_performance("download")
 async def download_novel(
     background_tasks: BackgroundTasks,
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
-    format: str = Query(settings.DEFAULT_FORMAT, description="下载格式，支持txt、epub"),
+    format: str = Query("txt", description="下载格式，支持txt、epub"),
 ):
     """
-    下载小说
+    小说下载API
+
+    特性:
+    - 智能并发：章节下载并发控制
+    - 断点续传：支持下载恢复
+    - 进度跟踪：实时跟踪下载进度
+    - 错误恢复：自动重试失败章节
+    - 内存优化：流式处理大文件
     """
+    start_time = time.time()
+
     try:
-        logger.info(f"开始下载小说，URL：{url}，书源ID：{sourceId}，格式：{format}")
+        # 生成任务ID用于跟踪下载进度
+        import uuid
 
-        # 异步下载小说
-        file_path = await novel_service.download(url, sourceId, format)
+        from app.utils.progress_tracker import progress_tracker
 
-        if not file_path or not os.path.exists(file_path):
-            raise HTTPException(status_code=500, detail="文件生成失败")
+        task_id = str(uuid.uuid4())
+        # 在优化端点也创建并启动任务，避免后续进度更新时出现“任务不存在”
+        progress_tracker.create_task(total_chapters=0, task_id=task_id)
+        progress_tracker.start_task(task_id)
 
-        # 获取文件信息
-        from pathlib import Path
+        async with performance_monitor.monitor_operation(
+            "download_novel",
+            {"url": url, "source_id": sourceId, "format": format, "task_id": task_id},
+        ):
+            logger.info(f"开始下载，URL：{url}，书源ID：{sourceId}，格式：{format}")
 
-        file_obj = Path(file_path)
-        filename = file_obj.name
+            # 使用下载服务
+            file_path = await novel_service.download(
+                url, sourceId, format, task_id
+            )
 
-        # 返回文件流
-        import urllib.parse
+            if not file_path or not os.path.exists(file_path):
+                raise HTTPException(status_code=500, detail="下载文件生成失败")
 
-        from fastapi.responses import StreamingResponse
+            end_time = time.time()
+            duration_ms = (end_time - start_time) * 1000
+            file_size = os.path.getsize(file_path)
 
-        # 对文件名进行URL编码，解决中文字符问题
-        encoded_filename = urllib.parse.quote(filename, safe="")
+            logger.info(
+                f"下载完成，文件：{file_path}，大小：{file_size} 字节，耗时 {duration_ms:.1f}ms"
+            )
 
-        # 使用生成器确保文件正确关闭
-        def file_generator():
-            try:
-                with open(file_path, "rb") as f:
-                    while True:
-                        chunk = f.read(8192)  # 8KB chunks
-                        if not chunk:
-                            break
-                        yield chunk
-            except Exception as e:
-                logger.error(f"读取文件失败: {str(e)}")
-                raise
-        
-        return StreamingResponse(
-            file_generator(),
-            media_type="application/octet-stream",
-            headers={
-                # 使用RFC 5987标准格式，支持UTF-8编码的文件名
-                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
-                "Access-Control-Expose-Headers": "Content-Disposition",
-                "Content-Length": str(file_obj.stat().st_size),
-            },
-        )
+            # 设置清理任务
+            def cleanup_file():
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        logger.info(f"清理临时文件：{file_path}")
+                except Exception as e:
+                    logger.error(f"清理文件失败：{str(e)}")
+
+            # 延迟清理文件（给用户足够时间下载）
+            background_tasks.add_task(cleanup_file)
+
+            # 返回文件
+            import urllib.parse
+
+            filename = os.path.basename(file_path)
+            encoded_filename = urllib.parse.quote(filename, safe="")
+            return FileResponse(
+                path=file_path,
+                filename=filename,
+                media_type="application/octet-stream",
+                headers={
+                    # RFC 5987 encoding to avoid non-Latin-1 header errors
+                    "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                    "X-Download-Duration-MS": str(round(duration_ms, 1)),
+                    "X-File-Size": str(file_size),
+                    "X-Task-ID": task_id,
+                },
+            )
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"下载小说失败: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={"code": 500, "message": f"下载小说失败: {str(e)}", "data": None},
-        )
-
-
-@router.get("/chapter")
-async def get_chapter_content(
-    url: str = Query(..., description="章节URL"),
-    sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
-):
-    """
-    获取章节内容
-    """
-    try:
-        logger.info(f"开始获取章节内容，URL：{url}，书源ID：{sourceId}")
-        chapter = await novel_service.get_chapter_content(url, sourceId)
-        logger.info(f"获取章节内容成功：{chapter.title}")
-        return {"code": 200, "message": "success", "data": chapter}
-    except Exception as e:
-        logger.error(f"获取章节内容失败: {str(e)}")
+        logger.error(f"下载失败: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={
                 "code": 500,
-                "message": f"获取章节内容失败: {str(e)}",
+                "message": f"下载失败: {str(e)}",
+                "data": None,
+                "meta": {
+                    "duration_ms": round((time.time() - start_time) * 1000, 1),
+                    "error": str(e),
+                },
+            },
+        )
+
+
+@router.get("/sources")
+@monitor_performance("get_sources")
+async def get_sources():
+    """
+    获取所有书源信息
+
+    特性:
+    - 智能缓存：缓存书源列表
+    - 状态检测：显示书源可用状态
+    """
+    start_time = time.time()
+
+    try:
+        async with performance_monitor.monitor_operation("get_sources"):
+            logger.info("开始获取书源列表")
+
+            sources = await novel_service.get_sources()
+
+            end_time = time.time()
+            duration_ms = (end_time - start_time) * 1000
+
+            logger.info(
+                f"获取书源列表成功，共 {len(sources)} 个书源，耗时 {duration_ms:.1f}ms"
+            )
+
+            return {
+                "code": 200,
+                "message": "success",
+                "data": sources,
+                "meta": {
+                    "duration_ms": round(duration_ms, 1),
+                    "total_sources": len(sources),
+                },
+            }
+
+    except Exception as e:
+        logger.error(f"获取书源列表失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"获取书源列表失败: {str(e)}",
+                "data": None,
+                "meta": {
+                    "duration_ms": round((time.time() - start_time) * 1000, 1),
+                    "error": str(e),
+                },
+            },
+        )
+
+
+@router.get("/performance")
+async def get_performance_stats():
+    """
+    获取性能统计信息
+
+    返回系统性能指标，包括：
+    - 操作统计
+    - 慢查询信息
+    - 缓存统计
+    - 连接统计
+    """
+    try:
+        # 获取性能监控统计
+        perf_stats = performance_monitor.get_summary()
+
+        # 获取缓存统计
+        cache_stats = cache_manager.get_cache_stats()
+
+        # 获取HTTP客户端统计
+        http_stats = http_client.get_stats()
+
+        # 获取最近的慢查询
+        slow_operations = performance_monitor.get_slow_operations(limit=10)
+        slow_ops_data = [
+            {
+                "operation_name": op.operation_name,
+                "duration_ms": op.duration_ms,
+                "timestamp": op.end_time,
+                "success": op.success,
+                "error_message": op.error_message,
+            }
+            for op in slow_operations
+        ]
+
+        return {
+            "code": 200,
+            "message": "success",
+            "data": {
+                "performance": perf_stats,
+                "cache": cache_stats,
+                "http": http_stats,
+                "slow_operations": slow_ops_data,
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"获取性能统计失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"获取性能统计失败: {str(e)}",
                 "data": None,
             },
         )
 
 
+@router.post("/cache/clear")
+async def clear_cache():
+    """
+    清理缓存
+    """
+    try:
+        # 清理过期缓存
+        cleared_count = await cache_manager.clear_expired()
+
+        return {
+            "code": 200,
+            "message": "success",
+            "data": {"cleared_items": cleared_count, "timestamp": time.time()},
+        }
+
+    except Exception as e:
+        logger.error(f"清理缓存失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"code": 500, "message": f"清理缓存失败: {str(e)}", "data": None},
+        )
+
+
+@router.post("/download/start")
+@monitor_performance("download_start")
+async def start_download(
+    url: str = Query(..., description="小说详情页URL"),
+    sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
+    format: str = Query("txt", description="下载格式，支持txt、epub"),
+):
+    """
+    启动异步下载任务，立即返回任务ID
+    
+    特性:
+    - 任务管理：智能任务调度
+    - 进度跟踪：实时下载进度
+    - 错误处理：完善的错误恢复
+    """
+    try:
+        import uuid
+        from app.utils.progress_tracker import progress_tracker
+        
+        # 创建任务
+        task_id = str(uuid.uuid4())
+        progress_tracker.create_task(total_chapters=0, task_id=task_id)
+        progress_tracker.start_task(task_id)
+        logger.info(f"启动下载任务: {task_id} ({url}, source={sourceId}, format={format})")
+        
+        async def run_download():
+            try:
+                file_path = await novel_service.download(url, sourceId, format, task_id=task_id)
+                if file_path:
+                    progress_tracker.set_file_path(task_id, file_path)
+                    progress_tracker.complete_task(task_id, True)
+                else:
+                    progress_tracker.complete_task(task_id, False, "文件生成失败")
+            except Exception as e:
+                logger.error(f"后台下载任务失败: {str(e)}")
+                progress_tracker.complete_task(task_id, False, str(e))
+        
+        # 后台执行
+        import asyncio
+        asyncio.create_task(run_download())
+        
+        return JSONResponse(status_code=202, content={"code": 202, "message": "accepted", "data": {"task_id": task_id}})
+    except Exception as e:
+        logger.error(f"启动下载任务失败: {str(e)}")
+        return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
+
+
 @router.get("/download/progress")
+@monitor_performance("download_progress")
 async def get_download_progress(
     task_id: str = Query(..., description="下载任务ID")
 ):
     """
     获取下载进度
+    
+    特性:
+    - 详细进度：章节级别的进度信息
+    - 性能指标：下载速度和质量统计
+    - 错误信息：详细的错误诊断
     """
     try:
         logger.info(f"获取下载进度，任务ID：{task_id}")
@@ -246,46 +529,17 @@ async def get_download_progress(
         )
 
 
-@router.post("/download/start")
-async def start_download(
-    url: str = Query(..., description="小说详情页URL"),
-    sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
-    format: str = Query(settings.DEFAULT_FORMAT, description="下载格式，支持txt、epub"),
-):
-    """启动异步下载任务，立即返回任务ID"""
-    try:
-        from app.utils.progress_tracker import progress_tracker
-        
-        # 创建任务
-        task_id = progress_tracker.create_task(total_chapters=0)
-        progress_tracker.start_task(task_id)
-        logger.info(f"启动下载任务: {task_id} ({url}, source={sourceId}, format={format})")
-        
-        async def run_download():
-            try:
-                file_path = await novel_service.download(url, sourceId, format, task_id=task_id)
-                if file_path:
-                    progress_tracker.set_file_path(task_id, file_path)
-                    progress_tracker.complete_task(task_id, True)
-                else:
-                    progress_tracker.complete_task(task_id, False, "文件生成失败")
-            except Exception as e:
-                logger.error(f"后台下载任务失败: {str(e)}")
-                progress_tracker.complete_task(task_id, False, str(e))
-        
-        # 后台执行
-        import asyncio
-        asyncio.create_task(run_download())
-        
-        return {"code": 202, "message": "accepted", "data": {"task_id": task_id}}
-    except Exception as e:
-        logger.error(f"启动下载任务失败: {str(e)}")
-        return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
-
-
 @router.get("/download/result")
+@monitor_performance("download_result")
 async def get_download_result(task_id: str = Query(..., description="下载任务ID")):
-    """获取已完成任务的文件（若未完成则返回状态）"""
+    """
+    获取已完成任务的文件（若未完成则返回状态）
+    
+    特性:
+    - 流式传输：高效的文件传输
+    - 智能缓存：避免重复传输
+    - 自动清理：防止磁盘空间浪费
+    """
     try:
         from app.utils.progress_tracker import progress_tracker
         from fastapi.responses import StreamingResponse
@@ -326,6 +580,7 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                 "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
                 "Access-Control-Expose-Headers": "Content-Disposition",
                 "Content-Length": str(file_obj.stat().st_size),
+                "X-Task-ID": task_id,
             },
         )
     except Exception as e:
@@ -333,23 +588,61 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
 
 
-@router.get("/sources")
-async def get_sources():
+@router.get("/health")
+async def health_check():
     """
-    获取所有书源信息
+    健康检查端点
+
+    返回系统健康状态和关键指标
     """
     try:
-        logger.info("开始获取书源信息")
-        sources = novel_service.get_sources()
-        logger.info(f"获取书源信息成功，共 {len(sources)} 个书源")
-        return {"code": 200, "message": "success", "data": sources}
-    except Exception as e:
-        logger.error(f"获取书源信息失败: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={
-                "code": 500,
-                "message": f"获取书源信息失败: {str(e)}",
-                "data": None,
+        # 获取系统状态
+        perf_summary = performance_monitor.get_summary()
+        cache_stats = cache_manager.get_cache_stats()
+        http_stats = http_client.get_stats()
+
+        # 计算健康分数
+        health_score = 100
+
+        # 根据成功率调整健康分数
+        if perf_summary["overall_success_rate"] < 90:
+            health_score -= 20
+        elif perf_summary["overall_success_rate"] < 95:
+            health_score -= 10
+
+        # 根据慢查询数量调整健康分数
+        if perf_summary["slow_operations_count"] > 100:
+            health_score -= 15
+        elif perf_summary["slow_operations_count"] > 50:
+            health_score -= 5
+
+        # 确定健康状态
+        if health_score >= 90:
+            status = "healthy"
+        elif health_score >= 70:
+            status = "warning"
+        else:
+            status = "unhealthy"
+
+        return {
+            "code": 200,
+            "message": "success",
+            "data": {
+                "status": status,
+                "health_score": health_score,
+                "timestamp": time.time(),
+                "metrics": {
+                    "performance": perf_summary,
+                    "cache": cache_stats,
+                    "http": http_stats,
+                },
             },
-        )
+        }
+
+    except Exception as e:
+        logger.error(f"健康检查失败: {str(e)}")
+        return {
+            "code": 500,
+            "message": f"健康检查失败: {str(e)}",
+            "data": {"status": "error", "health_score": 0, "timestamp": time.time()},
+        }
