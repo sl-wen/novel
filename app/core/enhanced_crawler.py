@@ -126,9 +126,18 @@ class EnhancedCrawler:
                 book, chapters, download_dir, format
             )
 
+            # 验证文件是否成功生成
+            if not file_path or not file_path.exists():
+                error_msg = f"文件生成失败: 路径为空或文件不存在 ({file_path})"
+                logger.error(error_msg)
+                if task_id:
+                    progress_tracker.complete_task(task_id, False, error_msg)
+                raise Exception(error_msg)
+
             # 6.1 记录生成文件路径
             if task_id:
                 progress_tracker.set_file_path(task_id, str(file_path))
+                logger.info(f"设置文件路径: {task_id} -> {file_path}")
 
             # 7. 清理临时文件
             await self._cleanup_temp_files(download_dir)
@@ -139,6 +148,7 @@ class EnhancedCrawler:
             # 完成任务进度跟踪
             if task_id:
                 progress_tracker.complete_task(task_id, True)
+                logger.info(f"任务标记为完成: {task_id}")
 
             return str(file_path)
 

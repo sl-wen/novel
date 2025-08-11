@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.models.search import SearchResponse
 from app.services.novel_service import NovelService
+from app.utils.progress_tracker import TaskStatus
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -264,14 +265,16 @@ async def start_download(
         async def run_download():
             try:
                 file_path = await novel_service.download(url, sourceId, format, task_id=task_id)
-                if file_path:
-                    progress_tracker.set_file_path(task_id, file_path)
-                    progress_tracker.complete_task(task_id, True)
-                else:
-                    progress_tracker.complete_task(task_id, False, "文件生成失败")
+                # 注意：progress_tracker.set_file_path 和 complete_task 已在 enhanced_crawler 中处理
+                # 这里不需要重复调用，避免竞态条件
+                if not file_path:
+                    logger.error("下载完成但文件路径为空")
             except Exception as e:
                 logger.error(f"后台下载任务失败: {str(e)}")
-                progress_tracker.complete_task(task_id, False, str(e))
+                # 只有在enhanced_crawler未处理异常时才标记失败
+                progress = progress_tracker.get_progress(task_id)
+                if progress and progress.status == TaskStatus.RUNNING:
+                    progress_tracker.complete_task(task_id, False, str(e))
         
         # 后台执行
         import asyncio
@@ -297,10 +300,10 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
             return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
         
         # 未完成直接返回状态
-        if progress.status not in [progress.status.COMPLETED, progress.status.FAILED]:
+        if progress.status not in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
             return {"code": 200, "message": "running", "data": progress.to_dict()}
         
-        if progress.status == progress.status.FAILED:
+        if progress.status == TaskStatus.FAILED:
             return JSONResponse(status_code=500, content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()})
         
         file_path = progress.file_path
