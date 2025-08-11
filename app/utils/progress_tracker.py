@@ -357,15 +357,29 @@ class ProgressTracker:
         """检查超时任务"""
         current_time = time.time()
         timeout_threshold = 300  # 5分钟无心跳视为超时
+        max_running_time = 3600  # 1小时最大运行时间
         
         with self._lock:
-            for task_id, progress in self._tasks.items():
+            for task_id, progress in list(self._tasks.items()):
                 if progress.status == TaskStatus.RUNNING:
+                    # 检查总运行时间
+                    total_running_time = current_time - progress.start_time
+                    
+                    # 如果任务运行超过最大时间，直接标记为失败
+                    if total_running_time > max_running_time:
+                        progress.status = TaskStatus.FAILED
+                        progress.error_message = f"任务运行超时：已运行 {total_running_time/60:.1f} 分钟"
+                        progress.end_time = current_time
+                        logger.error(f"任务 {task_id} 因运行时间过长被标记为失败")
+                        self._notify_callbacks(task_id)
+                        continue
+                    
                     # 检查心跳超时
-                    if current_time - progress.last_heartbeat > timeout_threshold:
+                    heartbeat_gap = current_time - progress.last_heartbeat
+                    if heartbeat_gap > timeout_threshold:
                         progress.timeout_warnings += 1
                         logger.warning(
-                            f"任务 {task_id} 可能超时 (无心跳 {current_time - progress.last_heartbeat:.1f}s)，"
+                            f"任务 {task_id} 可能超时 (无心跳 {heartbeat_gap:.1f}s)，"
                             f"警告次数: {progress.timeout_warnings}"
                         )
                         
@@ -376,6 +390,16 @@ class ProgressTracker:
                             progress.end_time = current_time
                             logger.error(f"任务 {task_id} 因超时被标记为失败")
                             self._notify_callbacks(task_id)
+                    
+                    # 检查无进展的任务（运行超过10分钟但进度为0）
+                    elif (total_running_time > 600 and 
+                          progress.progress_percentage == 0 and 
+                          progress.completed_chapters == 0):
+                        progress.status = TaskStatus.FAILED
+                        progress.error_message = "任务无进展：可能遇到网络问题或URL无效"
+                        progress.end_time = current_time
+                        logger.error(f"任务 {task_id} 因长时间无进展被标记为失败")
+                        self._notify_callbacks(task_id)
     
     def heartbeat(self, task_id: str):
         """更新任务心跳"""
