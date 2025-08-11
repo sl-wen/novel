@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -332,11 +333,16 @@ class Crawler:
                     correct_order = 0
                     original_title = safe_filename  # 默认使用安全文件名
                     for toc_chapter in toc:
-                        if FileUtils.sanitize_filename(toc_chapter.title) == safe_filename:
+                        if (
+                            FileUtils.sanitize_filename(toc_chapter.title)
+                            == safe_filename
+                        ):
                             correct_order = toc_chapter.order
                             original_title = toc_chapter.title
                             break
-                    chapter = Chapter(title=original_title, content=content, order=correct_order)
+                    chapter = Chapter(
+                        title=original_title, content=content, order=correct_order
+                    )
                     chapters.append(chapter)
             except Exception as e:
                 logger.warning(f"加载已存在章节失败 {safe_filename}: {str(e)}")
@@ -463,7 +469,7 @@ class Crawler:
         def write_file():
             # 确保章节按顺序排列
             chapters.sort(key=lambda x: x.order or 0)
-            
+
             with open(file_path, "w", encoding="utf-8") as f:
                 # 写入书籍信息
                 f.write(f"书名：{book.title}\n")
@@ -475,7 +481,18 @@ class Crawler:
 
                 # 写入章节内容
                 for chapter in chapters:
-                    f.write(f"第{chapter.order}章 {chapter.title}\n")
+                    # 检查章节标题是否已经包含章节号，避免重复
+                    title = chapter.title
+                    # 匹配各种章节号格式：第X章、第X节、第XX章、第XX节、第XXX章、第XXX节
+                    # 以及中文数字：第一章、第二章、第三十二章等
+                    if not re.search(
+                        r"^\s*第?[一二三四五六七八九十百千万\d]+[章节]", title
+                    ):
+                        # 如果标题不包含章节号，则添加
+                        f.write(f"第{chapter.order}章 {title}\n")
+                    else:
+                        # 如果标题已包含章节号，直接使用原标题
+                        f.write(f"{title}\n")
                     f.write("-" * 30 + "\n")
                     f.write(chapter.content)
                     f.write("\n\n")
