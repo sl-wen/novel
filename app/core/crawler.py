@@ -481,18 +481,8 @@ class Crawler:
 
                 # 写入章节内容
                 for chapter in chapters:
-                    # 检查章节标题是否已经包含章节号，避免重复
                     title = chapter.title
-                    # 匹配各种章节号格式：第X章、第X节、第XX章、第XX节、第XXX章、第XXX节
-                    # 以及中文数字：第一章、第二章、第三十二章等
-                    if not re.search(
-                        r"^\s*第?[一二三四五六七八九十百千万\d]+[章节]", title
-                    ):
-                        # 如果标题不包含章节号，则添加
-                        f.write(f"第{chapter.order}章 {title}\n")
-                    else:
-                        # 如果标题已包含章节号，直接使用原标题
-                        f.write(f"{title}\n")
+                    f.write(f"{title}\n")
                     f.write("-" * 30 + "\n")
                     f.write(chapter.content)
                     f.write("\n\n")
@@ -547,6 +537,69 @@ class Crawler:
             except Exception as e:
                 logger.warning(f"关闭会话失败: {str(e)}")
         self.session_pool.clear()
+
+    def _clean_chapter_title(self, title: str, order: int) -> str:
+        """
+        清理章节标题，处理包含多个章节号的复杂标题
+
+        Args:
+            title: 原始章节标题
+            order: 章节序号
+
+        Returns:
+            清理后的章节标题
+        """
+        if not title:
+            return f"第{order}章"
+
+        # 移除多余的空白字符
+        title = title.strip()
+
+        # 匹配各种章节号模式
+        chapter_patterns = [
+            # 匹配 "第X章" 格式
+            r"第\d+章",
+            # 匹配 "第X节" 格式
+            r"第\d+节",
+            # 匹配中文数字章节号
+            r"第[一二三四五六七八九十百千万]+[章节]",
+            # 匹配不带"第"字的章节号
+            r"[一二三四五六七八九十百千万]+[章节]",
+            # 匹配 "第X卷" 格式
+            r"第\d+卷",
+            # 匹配中文数字卷号
+            r"第[一二三四五六七八九十百千万]+卷",
+        ]
+
+        # 查找所有匹配的章节号
+        found_chapters = []
+        for pattern in chapter_patterns:
+            matches = re.findall(pattern, title)
+            found_chapters.extend(matches)
+
+        if found_chapters:
+            # 移除所有章节号，保留其他内容
+            cleaned_title = title
+            for chapter in found_chapters:
+                cleaned_title = re.sub(re.escape(chapter), "", cleaned_title)
+
+            # 清理多余的空格和标点
+            cleaned_title = re.sub(r"\s+", " ", cleaned_title.strip())
+            cleaned_title = re.sub(
+                r"^[^\w\u4e00-\u9fff]+", "", cleaned_title
+            )  # 移除开头的非文字字符
+            cleaned_title = re.sub(
+                r"[^\w\u4e00-\u9fff\s]+$", "", cleaned_title
+            )  # 移除结尾的非文字字符
+
+            # 使用order作为章节号，加上清理后的内容
+            if cleaned_title:
+                return f"第{order}章 {cleaned_title}"
+            else:
+                return f"第{order}章"
+        else:
+            # 如果没有找到章节号，添加章节号
+            return f"第{order}章 {title}"
 
     def get_download_progress(self) -> Dict[str, Any]:
         """获取下载进度信息"""
