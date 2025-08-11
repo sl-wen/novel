@@ -175,6 +175,8 @@ class Crawler:
                 if isinstance(result, Exception):
                     print(f"<== 章节下载失败: {chapter_info.title}, 错误: {str(result)}")
                 elif result:
+                    # 确保章节order字段正确设置
+                    result.order = chapter_info.order
                     chapters.append(result)
                     print(f"<== 章节下载成功: {result.title}")
             
@@ -210,7 +212,7 @@ class Crawler:
             章节对象
         """
         try:
-            chapter = await chapter_parser.parse(chapter_info.url)
+            chapter = await chapter_parser.parse(chapter_info.url, chapter_info.title, chapter_info.order)
             if chapter:
                 # 保存章节到文件
                 self._save_chapter_file(chapter)
