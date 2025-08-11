@@ -128,6 +128,12 @@ class ProgressTracker:
         """开始任务"""
         with self._lock:
             if task_id in self._tasks:
+                # 防止重新启动已完成的任务
+                current_status = self._tasks[task_id].status
+                if current_status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
+                    logger.warning(f"尝试启动已完成的任务: {task_id}, 当前状态: {current_status.value}")
+                    return
+                
                 self._tasks[task_id].status = TaskStatus.RUNNING
                 self._tasks[task_id].start_time = time.time()
                 self._notify_callbacks(task_id)
@@ -150,6 +156,12 @@ class ProgressTracker:
                 return
             
             progress = self._tasks[task_id]
+            
+            # 防止更新已完成的任务进度
+            if progress.status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
+                logger.warning(f"尝试更新已完成任务的进度: {task_id}, 状态: {progress.status.value}")
+                return
+            
             progress.completed_chapters = completed_chapters
             progress.failed_chapters = failed_chapters
             progress.current_chapter = current_chapter
@@ -166,6 +178,30 @@ class ProgressTracker:
                 logger.warning(f"任务不存在: {task_id}")
                 return
             self._tasks[task_id].file_path = file_path
+            self._notify_callbacks(task_id)
+    
+    def update_total_chapters(self, task_id: str, total_chapters: int):
+        """
+        更新任务的总章节数
+        
+        Args:
+            task_id: 任务ID
+            total_chapters: 总章节数
+        """
+        with self._lock:
+            if task_id not in self._tasks:
+                logger.warning(f"更新总章节数：任务不存在: {task_id}")
+                return
+            
+            progress = self._tasks[task_id]
+            old_total = progress.total_chapters
+            progress.total_chapters = total_chapters
+            
+            # 重新计算进度百分比
+            if total_chapters > 0:
+                progress.progress_percentage = (progress.completed_chapters / total_chapters) * 100
+            
+            logger.info(f"更新任务总章节数: {task_id}, {old_total} -> {total_chapters}")
             self._notify_callbacks(task_id)
     
     def complete_task(self, task_id: str, success: bool = True, error_message: str = ""):
@@ -188,7 +224,11 @@ class ProgressTracker:
             progress.error_message = error_message
             
             if success:
+                # 确保成功的任务进度始终为100%，无论total_chapters是否为0
                 progress.progress_percentage = 100.0
+                logger.info(f"任务完成: {task_id}, 最终进度: {progress.progress_percentage}%")
+            else:
+                logger.error(f"任务失败: {task_id}, 错误: {error_message}")
             
             self._notify_callbacks(task_id)
             logger.info(f"任务{'完成' if success else '失败'}: {task_id}")
@@ -214,6 +254,12 @@ class ProgressTracker:
         """恢复任务"""
         with self._lock:
             if task_id in self._tasks:
+                # 防止恢复已完成的任务
+                current_status = self._tasks[task_id].status
+                if current_status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
+                    logger.warning(f"尝试恢复已完成的任务: {task_id}, 当前状态: {current_status.value}")
+                    return
+                
                 self._tasks[task_id].status = TaskStatus.RUNNING
                 self._notify_callbacks(task_id)
                 logger.info(f"恢复下载任务: {task_id}")
@@ -346,6 +392,68 @@ class ProgressTracker:
         with self._lock:
             if task_id in self._tasks:
                 self._tasks[task_id].polling_interval = interval
+
+    def validate_task_status(self, task_id: str) -> bool:
+        """
+        验证任务状态的一致性
+        
+        Args:
+            task_id: 任务ID
+            
+        Returns:
+            True if status is consistent, False otherwise
+        """
+        with self._lock:
+            if task_id not in self._tasks:
+                return False
+            
+            progress = self._tasks[task_id]
+            
+            # 检查已完成任务的一致性
+            if progress.status == TaskStatus.COMPLETED:
+                if progress.progress_percentage != 100.0:
+                    logger.warning(f"已完成任务进度不为100%: {task_id}, 进度: {progress.progress_percentage}%")
+                    progress.progress_percentage = 100.0
+                    return False
+                
+                if not progress.end_time:
+                    logger.warning(f"已完成任务缺少结束时间: {task_id}")
+                    progress.end_time = time.time()
+                    return False
+            
+            return True
+
+    def force_complete_task(self, task_id: str, file_path: str = None):
+        """
+        强制完成任务（用于修复状态异常的任务）
+        
+        Args:
+            task_id: 任务ID
+            file_path: 文件路径（可选）
+        """
+        with self._lock:
+            if task_id not in self._tasks:
+                logger.warning(f"强制完成：任务不存在: {task_id}")
+                return False
+            
+            progress = self._tasks[task_id]
+            
+            # 如果任务已经是完成状态，不需要修改
+            if progress.status == TaskStatus.COMPLETED:
+                logger.info(f"任务已经是完成状态: {task_id}")
+                return True
+            
+            # 强制设置为完成状态
+            progress.status = TaskStatus.COMPLETED
+            progress.end_time = time.time()
+            progress.progress_percentage = 100.0
+            
+            if file_path:
+                progress.file_path = file_path
+            
+            self._notify_callbacks(task_id)
+            logger.info(f"强制完成任务: {task_id}")
+            return True
 
 
 # 全局进度跟踪器实例

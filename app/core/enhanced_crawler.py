@@ -185,9 +185,7 @@ class EnhancedCrawler:
                 from app.utils.progress_tracker import progress_tracker
                 progress_tracker.update_progress(task_id, 0, "开始下载", 0)
                 # 更新总章节数
-                progress = progress_tracker.get_progress(task_id)
-                if progress:
-                    progress.total_chapters = len(toc)
+                progress_tracker.update_total_chapters(task_id, len(toc))
 
             # 3. 创建下载目录
             download_dir = await self._create_download_directory(book, format)
