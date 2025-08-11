@@ -52,7 +52,7 @@ class EnhancedHttpClient:
 
         # 性能优化配置
         self.max_sessions_per_host = 3
-        self.session_timeout = 300  # 会话超时时间（秒）
+        self.session_timeout = 500  # 会话超时时间（秒）
         self.connection_timeout = 10
         self.read_timeout = 60
         self.max_retries = 3

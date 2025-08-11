@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # 搜索设置
     MAX_SEARCH_PAGES: int = 3  # 最大搜索页数
     MAX_SEARCH_RESULTS: int = 20  # 最大搜索结果数
-    MAX_RESULTS_PER_SOURCE: int = 3  # 每个书源最大结果数
+    MAX_RESULTS_PER_SOURCE: int = 4  # 每个书源最大结果数
 
     # 文件格式
     SUPPORTED_FORMATS: List[str] = ["txt", "epub"]
