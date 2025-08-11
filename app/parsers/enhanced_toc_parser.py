@@ -80,9 +80,13 @@ class EnhancedTocParser:
                 # 并发获取其他页的目录
                 other_chapters = await asyncio.gather(*tasks)
 
-                # 合并结果
+                # 合并结果并重新分配顺序
+                current_order = len(chapters) + 1
                 for page_chapters in other_chapters:
-                    chapters.extend(page_chapters)
+                    for chapter in page_chapters:
+                        chapter.order = current_order
+                        current_order += 1
+                        chapters.append(chapter)
 
         # 排序章节
         chapters.sort(key=lambda x: x.order)

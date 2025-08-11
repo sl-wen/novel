@@ -257,8 +257,9 @@ class EnhancedCrawler:
         temp_dir = download_dir / "temp"
         if temp_dir.exists():
             for file_path in temp_dir.glob("*.txt"):
-                chapter_title = file_path.stem
-                existing[chapter_title] = str(file_path)
+                # 文件名是经过sanitize的，需要映射回原始标题
+                safe_filename = file_path.stem
+                existing[safe_filename] = str(file_path)
         return existing
 
     async def _download_chapters_enhanced(
@@ -289,7 +290,8 @@ class EnhancedCrawler:
         semaphore = asyncio.Semaphore(self.download_config.max_concurrent)
 
         async def download_one(chapter_info: ChapterInfo) -> Optional[Chapter]:
-            if chapter_info.title in existing_chapters:
+            safe_filename = FileUtils.sanitize_filename(chapter_info.title)
+            if safe_filename in existing_chapters:
                 logger.info(f"跳过已存在章节: {chapter_info.title}")
                 return None
             async with semaphore:
@@ -322,14 +324,22 @@ class EnhancedCrawler:
             chapters.extend(retry_chapters)
 
         # 从现有文件加载章节
-        for title, file_path in existing_chapters.items():
+        for safe_filename, file_path in existing_chapters.items():
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
-                    chapter = Chapter(title=title, content=content, order=0)
+                    # 从toc中找到对应章节的正确order和原始标题
+                    correct_order = 0
+                    original_title = safe_filename  # 默认使用安全文件名
+                    for toc_chapter in toc:
+                        if FileUtils.sanitize_filename(toc_chapter.title) == safe_filename:
+                            correct_order = toc_chapter.order
+                            original_title = toc_chapter.title
+                            break
+                    chapter = Chapter(title=original_title, content=content, order=correct_order)
                     chapters.append(chapter)
             except Exception as e:
-                logger.warning(f"加载已存在章节失败 {title}: {str(e)}")
+                logger.warning(f"加载已存在章节失败 {safe_filename}: {str(e)}")
 
         # 按顺序排序
         chapters.sort(key=lambda x: x.order or 0)
@@ -340,7 +350,9 @@ class EnhancedCrawler:
         self, parser: ChapterParser, chapter_info: ChapterInfo, temp_dir: Path
     ) -> Optional[Chapter]:
         """增强版单章节下载"""
-        chapter_file = temp_dir / f"{chapter_info.title}.txt"
+        # 使用安全的文件名
+        safe_filename = FileUtils.sanitize_filename(chapter_info.title)
+        chapter_file = temp_dir / f"{safe_filename}.txt"
 
         for attempt in range(self.download_config.retry_times):
             try:
@@ -418,7 +430,8 @@ class EnhancedCrawler:
                     retry_chapters.append(chapter)
 
                     # 保存到临时文件
-                    chapter_file = temp_dir / f"{chapter_info.title}.txt"
+                    safe_filename = FileUtils.sanitize_filename(chapter_info.title)
+                    chapter_file = temp_dir / f"{safe_filename}.txt"
                     with open(chapter_file, "w", encoding="utf-8") as f:
                         f.write(chapter.content)
 
@@ -448,6 +461,9 @@ class EnhancedCrawler:
         file_path = download_dir / filename
 
         def write_file():
+            # 确保章节按顺序排列
+            chapters.sort(key=lambda x: x.order or 0)
+            
             with open(file_path, "w", encoding="utf-8") as f:
                 # 写入书籍信息
                 f.write(f"书名：{book.title}\n")

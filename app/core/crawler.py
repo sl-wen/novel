@@ -323,6 +323,9 @@ class Crawler:
             filename = f"{safe_title}_{safe_author}.epub"
             file_path = download_dir / filename
 
+            # 确保章节按顺序排列
+            chapters.sort(key=lambda x: x.order or 0)
+            
             # 创建EPUB书籍
             epub_book = epub.EpubBook()
             epub_book.set_title(book.title)
