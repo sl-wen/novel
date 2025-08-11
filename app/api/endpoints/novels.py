@@ -127,12 +127,15 @@ async def download_novel(
     format: str = Query(settings.DEFAULT_FORMAT, description="下载格式，支持txt、epub"),
 ):
     """
-    下载小说
+    下载小说（直接下载版本）
+    
+    此接口提供同步下载，直接返回文件流，无需轮询任务状态。
+    适合大多数下载场景，如果需要异步下载请使用 /download/start 系列接口。
     """
     try:
-        logger.info(f"开始下载小说，URL：{url}，书源ID：{sourceId}，格式：{format}")
+        logger.info(f"开始直接下载小说，URL：{url}，书源ID：{sourceId}，格式：{format}")
 
-        # 异步下载小说
+        # 同步下载小说
         file_path = await novel_service.download(url, sourceId, format)
 
         if not file_path or not os.path.exists(file_path):
@@ -146,33 +149,31 @@ async def download_novel(
 
         # 返回文件流
         import urllib.parse
-
-        from fastapi.responses import StreamingResponse
+        from fastapi.responses import FileResponse
 
         # 对文件名进行URL编码，解决中文字符问题
         encoded_filename = urllib.parse.quote(filename, safe="")
 
-        # 使用生成器确保文件正确关闭
-        def file_generator():
+        # 设置清理任务，下载完成后删除临时文件
+        def cleanup_file():
             try:
-                with open(file_path, "rb") as f:
-                    while True:
-                        chunk = f.read(8192)  # 8KB chunks
-                        if not chunk:
-                            break
-                        yield chunk
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logger.info(f"清理临时下载文件：{file_path}")
             except Exception as e:
-                logger.error(f"读取文件失败: {str(e)}")
-                raise
+                logger.error(f"清理临时文件失败：{str(e)}")
+
+        background_tasks.add_task(cleanup_file)
         
-        return StreamingResponse(
-            file_generator(),
+        # 使用FileResponse替代StreamingResponse，更简单可靠
+        return FileResponse(
+            path=file_path,
+            filename=filename,
             media_type="application/octet-stream",
             headers={
                 # 使用RFC 5987标准格式，支持UTF-8编码的文件名
                 "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
                 "Access-Control-Expose-Headers": "Content-Disposition",
-                "Content-Length": str(file_obj.stat().st_size),
             },
         )
     except HTTPException:
@@ -344,6 +345,8 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
     - 任务未完成时返回 202 状态码和进度信息
     - 任务失败时返回 500 状态码和错误信息
     - 建议先通过 /download/progress 确认任务完成后再调用此接口
+    
+    如果您想要直接下载而不使用异步任务，请使用 GET /download 接口
     """
     try:
         from app.utils.progress_tracker import progress_tracker
@@ -354,7 +357,14 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         progress = progress_tracker.get_progress(task_id)
         if not progress:
             logger.warning(f"任务不存在: {task_id}")
-            return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
+            return JSONResponse(
+                status_code=404, 
+                content={
+                    "code": 404, 
+                    "message": "任务不存在。请先使用 POST /download/start 创建下载任务，或使用 GET /download 进行直接下载", 
+                    "data": None
+                }
+            )
         
         # 导入TaskStatus枚举
         from app.utils.progress_tracker import TaskStatus
@@ -383,8 +393,13 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                 status_code=202, 
                 content={
                     "code": 202, 
-                    "message": f"任务还在进行中，状态：{progress.status.value}，进度：{progress.progress_percentage:.1f}%", 
-                    "data": None
+                    "message": f"任务还在进行中，状态：{progress.status.value}，进度：{progress.progress_percentage:.1f}%。请等待任务完成后再次调用此接口，或使用 GET /download/progress/smart 进行智能轮询", 
+                    "data": {
+                        "task_id": task_id,
+                        "status": progress.status.value,
+                        "progress_percentage": progress.progress_percentage,
+                        "suggestion": "使用 GET /download/progress/smart?task_id=" + task_id + " 等待任务完成"
+                    }
                 }
             )
         
