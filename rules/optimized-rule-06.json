@@ -1,0 +1,163 @@
+{
+  "id": 6,
+  "name": "全本小说网",
+  "url": "https://quanben5.com/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "https://quanben5.com/search.html/?keywords=%s&a=search.json&b=%s&c=book&callback=search",
+    "method": "get",
+    "data": "{}",
+    "list": ".pic_txt_list",
+    "name": "h3 > a",
+    "author": "p.info > span",
+    "category": "",
+    "latest": "",
+    "update": "",
+    "status": "",
+    "word_count": ""
+  },
+  "book": {
+    "name": [
+      "h3 > span",
+      "meta[property=\"og:novel:book_name\"]",
+      "meta[property=\"og:title\"]",
+      "h1.book-title",
+      "#info h1",
+      ".book-name",
+      "title"
+    ],
+    "author": [
+      "body > div.row > div > div:nth-child(1) > div.pic_txt_list > p:nth-child(3) > span",
+      "meta[property=\"og:novel:author\"]",
+      "meta[name=\"author\"]",
+      ".book-author",
+      "#info .author",
+      ".author"
+    ],
+    "intro": [
+      "body > div.row > div > div:nth-child(1) > div.description",
+      "meta[name=\"description\"]",
+      "meta[property=\"og:description\"]",
+      "#intro",
+      ".book-intro",
+      ".summary"
+    ],
+    "category": [
+      "body > div.row > div > div:nth-child(1) > div.pic_txt_list > p:nth-child(4) > span",
+      "meta[property=\"og:novel:category\"]",
+      ".book-category",
+      "#info .type",
+      ".category"
+    ],
+    "cover": [
+      "body > div.row > div > div:nth-child(1) > div.pic_txt_list > div > img",
+      "meta[property=\"og:image\"]",
+      "#fmimg img",
+      ".book-cover img",
+      "#info img"
+    ],
+    "latest": "",
+    "update": "",
+    "status": "body > div.row > div > div:nth-child(1) > div.pic_txt_list > p:nth-child(5) > span",
+    "word_count": ""
+  },
+  "toc": {
+    "list": "dd > a",
+    "title": "text",
+    "url": "href",
+    "has_pages": false,
+    "next_page": ""
+  },
+  "chapter": {
+    "title": ".content > h1",
+    "content": [
+      "#content,.content,.read-content,#chapter-content,.chapter-content,.book-content,#book-content,.novel-content,#novel-content,.text,#text,article,.article,.post-content,.entry-content",
+      "#content",
+      ".content",
+      ".read-content",
+      "#chapter-content",
+      ".chapter-content",
+      ".book-content",
+      "#book-content",
+      ".novel-content",
+      "#novel-content",
+      ".text",
+      "#text",
+      "article",
+      ".article",
+      ".post-content",
+      ".entry-content"
+    ],
+    "ad_patterns": [
+      "\\(本章完\\)",
+      "^首页.*书库.*排行.*$",
+      "^最新章节目录.*$",
+      "^作者：.*?更新时间：.*$",
+      "^如遇到内容无法显示或者显示不全.*$",
+      "^.*请更换谷歌浏览器.*$",
+      "(推广|广告|下载APP|\\bVIP\\b).{0,10}?(立即|扫码|点击)",
+      ".*?(记住|收藏).*?(网址|地址).*?",
+      ".*?手机.*?(版|端).*?",
+      ".*?更新.*?最快.*?",
+      ".*?无弹窗.*?",
+      ".*?免费.*?阅读.*?",
+      "喜欢.*?请.*?收藏.*?",
+      "天才一秒记住.*?",
+      "一秒记住.*?",
+      "手机用户请.*?",
+      "支持.*?分享.*?",
+      "搜.*?免费看.*?"
+    ],
+    "filter": {
+      "remove_tags": [
+        "script",
+        "style",
+        "iframe",
+        "form",
+        "input",
+        "button"
+      ],
+      "remove_attrs": [
+        "onclick",
+        "onload",
+        "style"
+      ],
+      "clean_html": true
+    },
+    "format": {
+      "paragraph_spacing": true,
+      "remove_empty_lines": true,
+      "trim_whitespace": true,
+      "fix_encoding": true
+    }
+  },
+  "version": "2.0",
+  "timeout": 15000,
+  "retry_count": 3,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "headers": {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive"
+  },
+  "cache": {
+    "enabled": true,
+    "ttl": 3600,
+    "preload_next": true
+  },
+  "concurrent_limit": 3,
+  "css_inject": {
+    "enabled": true,
+    "styles": "body { font-family: 'Microsoft YaHei', '微软雅黑', serif; line-height: 1.8; text-align: justify; padding: 0 5%; } p { margin: 0.8em 0; text-indent: 2em; } img { max-width: 100%; height: auto; }"
+  },
+  "error_handling": {
+    "ignore_ssl_errors": true,
+    "follow_redirects": true,
+    "max_redirects": 5,
+    "handle_404": "skip",
+    "handle_timeout": "retry"
+  }
+}
