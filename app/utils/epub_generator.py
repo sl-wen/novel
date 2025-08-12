@@ -58,6 +58,21 @@ class EPUBGenerator:
                 # 6. 添加样式文件
                 self._add_stylesheet(epub_zip)
 
+            # 确保文件完全写入磁盘
+            import time
+            time.sleep(0.1)  # 给文件系统一点时间完成写入
+            
+            # 验证文件是否可读
+            try:
+                with open(output_path, "rb") as f:
+                    # 读取文件头确保文件完整
+                    header = f.read(4)
+                    if header != b'PK\x03\x04':
+                        raise ValueError("EPUB文件格式验证失败")
+            except Exception as e:
+                logger.error(f"EPUB文件验证失败: {str(e)}")
+                raise
+
             logger.info(f"EPUB文件生成成功: {output_path}")
             return output_path
 
