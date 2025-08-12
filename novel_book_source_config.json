@@ -1,0 +1,237 @@
+[
+  {
+    "id": 1,
+    "url": "https://example-novel-site.com/",
+    "name": "无敌BOSS血条小说源",
+    "comment": "专为《无敌从我看见BOSS血条开始》优化的书源配置",
+    "language": "zh_CN",
+    "bookInfo": {
+      "title": "无敌从我看见BOSS血条开始",
+      "author": "我也很绝望",
+      "totalChapters": 11,
+      "actualChapters": 29,
+      "genre": "游戏/玄幻",
+      "status": "连载中",
+      "description": "坏消息：那个人不是我。坏消息：老大爷快死了。坏消息：我还被懵在鼓里。现实越发古怪，游戏情况不断。求魔游戏开服，方羽进入游戏，发现这个游戏，没…"
+    },
+    "search": {
+      "url": "https://example-novel-site.com/search.php",
+      "method": "post",
+      "data": "{searchkey: %s, searchtype: all}",
+      "result": ".search-result > .book-item",
+      "bookName": ".book-title > a",
+      "author": ".book-author",
+      "category": ".book-category",
+      "latestChapter": ".latest-chapter > a",
+      "lastUpdateTime": ".update-time",
+      "status": ".book-status",
+      "wordCount": ".word-count"
+    },
+    "book": {
+      "url": "https://example-novel-site.com/book/(.*?)/",
+      "bookName": "meta[property=\"og:novel:book_name\"]",
+      "author": "meta[property=\"og:novel:author\"]",
+      "intro": "meta[property=\"og:description\"]",
+      "category": "meta[property=\"og:novel:category\"]",
+      "coverUrl": "meta[property=\"og:image\"]",
+      "latestChapter": "meta[property=\"og:novel:latest_chapter_name\"]",
+      "lastUpdateTime": "meta[property=\"og:novel:update_time\"]",
+      "status": "meta[property=\"og:novel:status\"]",
+      "wordCount": "meta[property=\"og:novel:word_count\"]"
+    },
+    "toc": {
+      "url": "https://example-novel-site.com/chapters/%s/",
+      "item": ".chapter-list > .chapter-item > a",
+      "pagination": true,
+      "nextPage": ".pagination > .next-page"
+    },
+    "chapter": {
+      "title": ".chapter-title > h1",
+      "content": ".chapter-content",
+      "paragraphTagClosed": true,
+      "filterTxt": "\\(本章完\\)|天才一秒记住本站地址|请收藏本站|更新最快|无弹窗|免费阅读",
+      "filterTag": "div.ads script",
+      "pagination": true,
+      "nextPage": ".chapter-nav > .next-chapter"
+    },
+    "crawl": {
+      "threads": 3,
+      "minInterval": 800,
+      "maxInterval": 1500,
+      "retryCount": 3,
+      "timeout": 30000
+    },
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Accept-Encoding": "gzip, deflate",
+      "Connection": "keep-alive"
+    },
+    "chapters": [
+      {
+        "id": 1,
+        "title": "第一章 古古怪怪",
+        "url": "/chapter/1.html"
+      },
+      {
+        "id": 2,
+        "title": "第二章 进入游戏",
+        "url": "/chapter/2.html"
+      },
+      {
+        "id": 3,
+        "title": "第三章 探索",
+        "url": "/chapter/3.html"
+      },
+      {
+        "id": 4,
+        "title": "第四章 怪物",
+        "url": "/chapter/4.html"
+      },
+      {
+        "id": 5,
+        "title": "第五章 你真该死啊",
+        "url": "/chapter/5.html"
+      },
+      {
+        "id": 6,
+        "title": "第六章 污蔑",
+        "url": "/chapter/6.html"
+      },
+      {
+        "id": 7,
+        "title": "第七章 危机",
+        "url": "/chapter/7.html"
+      },
+      {
+        "id": 8,
+        "title": "第八章 刁德一",
+        "url": "/chapter/8.html"
+      },
+      {
+        "id": 9,
+        "title": "第九章 狡猾",
+        "url": "/chapter/9.html"
+      },
+      {
+        "id": 10,
+        "title": "第十章 广场",
+        "url": "/chapter/10.html"
+      },
+      {
+        "id": 11,
+        "title": "第十一章 属性面板",
+        "url": "/chapter/11.html"
+      },
+      {
+        "id": 12,
+        "title": "第十二章 连云寨",
+        "url": "/chapter/12.html"
+      },
+      {
+        "id": 13,
+        "title": "第十三章 死亡",
+        "url": "/chapter/13.html"
+      },
+      {
+        "id": 14,
+        "title": "第十四章 女婿",
+        "url": "/chapter/14.html"
+      },
+      {
+        "id": 15,
+        "title": "第十五章 再进游戏",
+        "url": "/chapter/15.html"
+      },
+      {
+        "id": 16,
+        "title": "第十六章 妖魔为何物",
+        "url": "/chapter/16.html"
+      },
+      {
+        "id": 17,
+        "title": "第十七章 境界划分",
+        "url": "/chapter/17.html"
+      },
+      {
+        "id": 18,
+        "title": "第十八章 归家",
+        "url": "/chapter/18.html"
+      },
+      {
+        "id": 19,
+        "title": "第十九章 二姐",
+        "url": "/chapter/19.html"
+      },
+      {
+        "id": 20,
+        "title": "第二十章 听我狡辩",
+        "url": "/chapter/20.html"
+      },
+      {
+        "id": 21,
+        "title": "第二十一章 推荐信",
+        "url": "/chapter/21.html"
+      },
+      {
+        "id": 22,
+        "title": "第二十二章 续杯",
+        "url": "/chapter/22.html"
+      },
+      {
+        "id": 23,
+        "title": "第二十三章 武道难",
+        "url": "/chapter/23.html"
+      },
+      {
+        "id": 24,
+        "title": "第二十四章 入门",
+        "url": "/chapter/24.html"
+      },
+      {
+        "id": 25,
+        "title": "第二十五章 态度变化",
+        "url": "/chapter/25.html"
+      },
+      {
+        "id": 26,
+        "title": "第二十六章 热闹",
+        "url": "/chapter/26.html"
+      },
+      {
+        "id": 27,
+        "title": "第二十七章 梭哈的快乐",
+        "url": "/chapter/27.html"
+      },
+      {
+        "id": 28,
+        "title": "第二十八章 手甲",
+        "url": "/chapter/28.html"
+      },
+      {
+        "id": 29,
+        "title": "第二十九章 面板变动",
+        "url": "/chapter/29.html"
+      }
+    ],
+    "sourceInfo": {
+      "originalSource": "书源 8",
+      "sourceStatus": "下载内容不对",
+      "dataIntegrity": "存在问题",
+      "recommendedAction": "需要验证章节完整性或寻找其他可靠的书源"
+    },
+    "optimization": {
+      "enableCache": true,
+      "cacheExpiry": 3600,
+      "enableGzip": true,
+      "maxRetries": 3,
+      "requestDelay": 1000,
+      "errorHandling": {
+        "skipOnError": false,
+        "fallbackSources": [],
+        "notifyOnError": true
+      }
+    }
+  }
+]
