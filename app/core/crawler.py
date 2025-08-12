@@ -332,21 +332,41 @@ class Crawler:
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
+                    
                     # 从toc中找到对应章节的正确order和原始标题
                     correct_order = 0
                     original_title = safe_filename  # 默认使用安全文件名
+                    
+                    # 改进的章节匹配逻辑
                     for toc_chapter in toc:
-                        if (
-                            FileUtils.sanitize_filename(toc_chapter.title)
-                            == safe_filename
-                        ):
+                        # 尝试多种匹配方式
+                        safe_toc_title = FileUtils.sanitize_filename(toc_chapter.title)
+                        if (safe_toc_title == safe_filename or 
+                            safe_filename in safe_toc_title or
+                            safe_toc_title in safe_filename):
                             correct_order = toc_chapter.order
                             original_title = toc_chapter.title
                             break
+                    
+                    # 如果没有找到匹配，尝试从文件名中提取顺序
+                    if correct_order == 0:
+                        # 尝试从文件名中提取章节编号
+                        import re
+                        match = re.search(r'第(\d+)章', safe_filename)
+                        if match:
+                            correct_order = int(match.group(1))
+                            original_title = safe_filename
+                        else:
+                            # 使用文件名作为顺序的最后手段
+                            correct_order = len(chapters) + 1
+                    
                     chapter = Chapter(
-                        title=original_title, content=content, order=correct_order
+                        title=original_title, 
+                        content=content, 
+                        order=correct_order
                     )
                     chapters.append(chapter)
+                    
             except Exception as e:
                 logger.warning(f"加载已存在章节失败 {safe_filename}: {str(e)}")
 

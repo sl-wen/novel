@@ -69,18 +69,28 @@ class TocParser:
         if self.toc_rule.get("has_pages", False) or self.toc_rule.get("pagination", False):
             logger.info("处理目录分页...")
             additional_chapters = await self._handle_pagination(toc_url)
-            # 重新分配章节顺序以确保连续性
-            current_order = len(chapters) + 1
-            for chapter in additional_chapters:
-                chapter.order = current_order
-                current_order += 1
-            chapters.extend(additional_chapters)
-
+            
+            if additional_chapters:
+                # 改进的章节顺序分配逻辑
+                # 找到当前章节的最大顺序号
+                max_order = max((chapter.order or 0) for chapter in chapters) if chapters else 0
+                
+                # 为分页章节分配连续的顺序号
+                current_order = max_order + 1
+                for chapter in additional_chapters:
+                    # 如果分页章节已有order且合理，保持原有order
+                    if not chapter.order or chapter.order <= max_order:
+                        chapter.order = current_order
+                        current_order += 1
+                
+                chapters.extend(additional_chapters)
+                logger.info(f"分页处理完成，新增 {len(additional_chapters)} 个章节")
+        
         # 数据清洗和验证
         chapters = self._clean_and_validate_chapters(chapters)
         
         # 排序章节
-        chapters.sort(key=lambda x: x.order)
+        chapters.sort(key=lambda x: x.order or 0)
 
         # 截取指定范围的章节
         start_idx = max(0, start - 1)
@@ -456,28 +466,37 @@ class TocParser:
         return chapters
 
     def _clean_title(self, title: str) -> str:
-        """清理章节标题"""
+        """清理章节标题（改进版）"""
         if not title:
             return ""
         
         # 移除多余的空白字符
         title = re.sub(r'\s+', ' ', title.strip())
         
-        # 移除常见的无用文本
+        # 只移除明显无用的内容，保留章节编号和标题
         useless_patterns = [
-            r'\[.*?\]',  # 移除方括号内容
-            r'【.*?】',   # 移除中文方括号内容
-            r'\(.*?\)',  # 移除圆括号内容
-            r'（.*?）',   # 移除中文圆括号内容
             r'更新时间.*',
             r'字数.*',
-            r'VIP.*',
+            r'VIP章节.*',
+            r'^\s*\d+\.\s*',  # 移除开头的数字序号（如"1. "）
+            r'\s*\(\d+字\)\s*$',  # 移除末尾的字数标记
+            r'\s*\[\d+字\]\s*$',  # 移除末尾的字数标记
         ]
         
         for pattern in useless_patterns:
             title = re.sub(pattern, '', title, flags=re.IGNORECASE)
         
-        return title.strip()
+        # 确保标题不为空
+        title = title.strip()
+        
+        # 如果标题被清理得太短，可能是过度清理了，返回原标题的简化版本
+        if len(title) < 3:
+            # 重新处理，只做基本清理
+            original = re.sub(r'\s+', ' ', title.strip()) if title else ""
+            if len(original) >= 3:
+                return original
+        
+        return title
 
     def _is_valid_chapter_url(self, url: str) -> bool:
         """验证章节URL是否有效"""
@@ -513,11 +532,14 @@ class TocParser:
             return False
 
     def _clean_and_validate_chapters(self, chapters: List[ChapterInfo]) -> List[ChapterInfo]:
-        """清洗和验证章节列表"""
+        """清洗和验证章节列表（改进版）"""
         if not chapters:
             return []
         
-        # 去重（基于URL）
+        # 先按原始顺序排序，确保基础顺序正确
+        chapters.sort(key=lambda x: x.order or 0)
+        
+        # 去重（基于URL），但保持顺序
         seen_urls = set()
         unique_chapters = []
         
@@ -526,20 +548,54 @@ class TocParser:
                 seen_urls.add(chapter.url)
                 unique_chapters.append(chapter)
         
-        # 过滤掉标题过短或明显无效的章节
+        # 过滤掉标题过短或明显无效的章节，但保持原有的order
         valid_chapters = []
         for chapter in unique_chapters:
-            if (len(chapter.title) >= 2 and 
+            # 改进标题验证逻辑
+            title_valid = (
+                len(chapter.title) >= 2 and 
                 not re.match(r'^[\s\-_\.]*$', chapter.title) and
-                self._is_valid_chapter_url(chapter.url)):
+                self._is_valid_chapter_url(chapter.url) and
+                not self._is_invalid_title(chapter.title)
+            )
+            
+            if title_valid:
                 valid_chapters.append(chapter)
         
-        # 重新排序
+        # 不重新分配order，保持原有顺序
+        # 只在order为空或0时才分配
         for i, chapter in enumerate(valid_chapters):
-            chapter.order = i + 1
+            if not chapter.order or chapter.order <= 0:
+                chapter.order = i + 1
+        
+        # 最终按order排序确保顺序正确
+        valid_chapters.sort(key=lambda x: x.order or 0)
         
         logger.info(f"章节清洗完成：原始 {len(chapters)} 个，有效 {len(valid_chapters)} 个")
         return valid_chapters
+    
+    def _is_invalid_title(self, title: str) -> bool:
+        """检查是否为无效标题"""
+        if not title:
+            return True
+        
+        # 检查是否为明显的无效标题
+        invalid_patterns = [
+            r'^[\s\-_\.]+$',  # 只包含空白字符和标点
+            r'^第\s*$',       # 只有"第"字
+            r'^章\s*$',       # 只有"章"字
+            r'^目录\s*$',     # 目录
+            r'^返回\s*$',     # 返回
+            r'^上一页\s*$',   # 上一页
+            r'^下一页\s*$',   # 下一页
+            r'^\d+\s*$',      # 只有数字
+        ]
+        
+        for pattern in invalid_patterns:
+            if re.match(pattern, title.strip(), re.IGNORECASE):
+                return True
+        
+        return False
 
     async def _handle_pagination(self, toc_url: str) -> List[ChapterInfo]:
         """处理目录分页"""
