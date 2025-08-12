@@ -547,6 +547,7 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         import urllib.parse
         from pathlib import Path
         import asyncio
+        import time
         
         progress = progress_tracker.get_progress(task_id)
         if not progress:
@@ -566,59 +567,138 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         # 文件就绪检查：确保文件存在且完全写入完成
         async def is_file_ready(file_path: str, max_retries: int = 5, retry_delay: float = 0.5) -> bool:
             """检查文件是否已经完全写入完成"""
-            for attempt in range(max_retries):
-                if not os.path.exists(file_path):
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(retry_delay)
-                        continue
-                    return False
-                
-                try:
-                    # 检查文件是否可以正常读取且大小稳定
-                    file_obj = Path(file_path)
-                    initial_size = file_obj.stat().st_size
+            from app.utils.metrics_tracker import file_readiness_tracker, FileReadinessResult
+            
+            # 获取文件大小用于指标跟踪
+            try:
+                file_size = Path(file_path).stat().st_size if os.path.exists(file_path) else 0
+            except:
+                file_size = 0
+            
+            # 开始指标跟踪
+            metric_id = file_readiness_tracker.start_check(task_id, file_path, file_size)
+            
+            logger.info(f"开始文件就绪检查: {file_path} (最大重试: {max_retries}次)")
+            start_time = time.time()
+            
+            try:
+                for attempt in range(max_retries):
+                    attempt_start = time.time()
+                    logger.debug(f"文件就绪检查 - 尝试 {attempt + 1}/{max_retries}")
                     
-                    # 如果文件大小为0，说明还在写入中
-                    if initial_size == 0:
+                    # 更新尝试次数
+                    file_readiness_tracker.update_attempts(metric_id, attempt + 1)
+                    
+                    if not os.path.exists(file_path):
+                        logger.warning(f"文件不存在 (尝试 {attempt + 1}/{max_retries}): {file_path}")
                         if attempt < max_retries - 1:
                             await asyncio.sleep(retry_delay)
                             continue
+                        logger.error(f"文件就绪检查失败: 文件不存在 - {file_path}")
+                        file_readiness_tracker.complete_check(metric_id, FileReadinessResult.FILE_NOT_FOUND, "文件不存在")
                         return False
                     
-                    # 等待一小段时间后再次检查文件大小，确保写入完成
-                    await asyncio.sleep(0.1)
-                    final_size = file_obj.stat().st_size
-                    
-                    # 如果文件大小稳定且可以打开，说明写入完成
-                    if initial_size == final_size:
-                        try:
-                            with open(file_path, "rb") as f:
-                                # 尝试读取文件头，确保文件可访问
-                                f.read(1024)
-                            return True
-                        except (IOError, OSError):
+                    try:
+                        # 检查文件是否可以正常读取且大小稳定
+                        file_obj = Path(file_path)
+                        initial_size = file_obj.stat().st_size
+                        logger.debug(f"文件初始大小: {initial_size} 字节")
+                        
+                        # 如果文件大小为0，说明还在写入中
+                        if initial_size == 0:
+                            logger.warning(f"文件大小为0，可能正在写入中 (尝试 {attempt + 1}/{max_retries})")
                             if attempt < max_retries - 1:
                                 await asyncio.sleep(retry_delay)
                                 continue
+                            logger.error(f"文件就绪检查失败: 文件大小为0 - {file_path}")
+                            file_readiness_tracker.complete_check(metric_id, FileReadinessResult.FILE_EMPTY, "文件大小为0")
                             return False
-                    else:
-                        # 文件大小还在变化，继续等待
+                        
+                        # 等待一小段时间后再次检查文件大小，确保写入完成
+                        await asyncio.sleep(0.1)
+                        final_size = file_obj.stat().st_size
+                        logger.debug(f"文件最终大小: {final_size} 字节")
+                        
+                        # 如果文件大小稳定且可以打开，说明写入完成
+                        if initial_size == final_size:
+                            try:
+                                with open(file_path, "rb") as f:
+                                    # 尝试读取文件头，确保文件可访问
+                                    header = f.read(1024)
+                                    logger.debug(f"成功读取文件头: {len(header)} 字节")
+                                
+                                elapsed = time.time() - start_time
+                                logger.info(f"文件就绪检查成功: {file_path} (耗时: {elapsed:.2f}秒, 尝试次数: {attempt + 1})")
+                                file_readiness_tracker.complete_check(metric_id, FileReadinessResult.SUCCESS)
+                                return True
+                            except (IOError, OSError) as e:
+                                logger.warning(f"文件读取失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                                if attempt < max_retries - 1:
+                                    await asyncio.sleep(retry_delay)
+                                    continue
+                                logger.error(f"文件就绪检查失败: 无法读取文件 - {file_path}")
+                                file_readiness_tracker.complete_check(metric_id, FileReadinessResult.ERROR, f"无法读取文件: {str(e)}")
+                                return False
+                        else:
+                            # 文件大小还在变化，继续等待
+                            size_diff = final_size - initial_size
+                            logger.info(f"文件大小变化中 (增长: {size_diff} 字节), 继续等待 (尝试 {attempt + 1}/{max_retries})")
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(retry_delay)
+                                continue
+                            logger.warning(f"文件就绪检查超时: 文件仍在变化 - {file_path}")
+                            file_readiness_tracker.complete_check(metric_id, FileReadinessResult.FILE_CHANGING, "文件仍在变化")
+                            return False
+                            
+                    except (FileNotFoundError, OSError) as e:
+                        attempt_time = time.time() - attempt_start
+                        logger.warning(f"文件检查异常 (尝试 {attempt + 1}/{max_retries}, 耗时: {attempt_time:.2f}秒): {str(e)}")
                         if attempt < max_retries - 1:
                             await asyncio.sleep(retry_delay)
                             continue
+                        logger.error(f"文件就绪检查失败: 持续异常 - {file_path}")
+                        file_readiness_tracker.complete_check(metric_id, FileReadinessResult.ERROR, f"持续异常: {str(e)}")
                         return False
-                        
-                except (FileNotFoundError, OSError) as e:
-                    logger.warning(f"文件检查失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(retry_delay)
-                        continue
-                    return False
+                
+                total_time = time.time() - start_time
+                logger.error(f"文件就绪检查最终失败: {file_path} (总耗时: {total_time:.2f}秒)")
+                file_readiness_tracker.complete_check(metric_id, FileReadinessResult.TIMEOUT, "超时")
+                return False
             
-            return False
+            except Exception as e:
+                logger.error(f"文件就绪检查异常: {str(e)}")
+                file_readiness_tracker.complete_check(metric_id, FileReadinessResult.ERROR, f"检查异常: {str(e)}")
+                return False
         
         # 执行文件就绪检查
-        if not await is_file_ready(file_path):
+        def calculate_retry_params(file_size: int) -> tuple:
+            """根据文件大小计算重试参数"""
+            if file_size == 0:
+                # 文件不存在或为空，使用默认参数
+                return 5, 0.5
+            elif file_size < 1024 * 1024:  # < 1MB
+                # 小文件，快速重试
+                return 3, 0.2
+            elif file_size < 10 * 1024 * 1024:  # < 10MB
+                # 中等文件，标准重试
+                return 5, 0.5
+            elif file_size < 50 * 1024 * 1024:  # < 50MB
+                # 大文件，延长重试
+                return 8, 1.0
+            else:  # >= 50MB
+                # 超大文件，更长重试
+                return 12, 2.0
+        
+        # 获取文件大小并计算重试参数
+        try:
+            current_file_size = Path(file_path).stat().st_size if os.path.exists(file_path) else 0
+        except:
+            current_file_size = 0
+            
+        max_retries, retry_delay = calculate_retry_params(current_file_size)
+        logger.info(f"文件大小: {current_file_size} 字节, 重试参数: {max_retries}次/{retry_delay}秒")
+        
+        if not await is_file_ready(file_path, max_retries, retry_delay):
             return JSONResponse(status_code=500, content={"code": 500, "message": "文件不存在或尚未生成完成", "data": progress.to_dict()})
         
         file_obj = Path(file_path)

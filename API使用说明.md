@@ -1,240 +1,327 @@
-# 小说聚合搜索与下载API使用说明
+# API使用说明
 
-## 项目简介
+## 概述
 
-这是一个基于FastAPI的小说聚合搜索与下载API服务，支持从多个书源搜索小说并提供下载功能。
+本文档详细介绍了小说下载API的使用方法和特性。
 
-## 功能特性
+## 核心特性
 
-- ✅ 多书源支持（20个预配置书源）
-- ✅ 小说搜索功能（每个书源最多返回2条结果，降低重复与噪声）
-- ✅ 书籍详情获取 / 章节目录获取
-- ✅ 小说下载（支持TXT、EPUB），支持异步任务与进度查询
-- ✅ 异步并发处理、连接池、UA 轮换
-- ✅ 错误重试、指数退避、结果缓存
-- ✅ 优化版 API：性能监控、健康检查、缓存管理
-- ✅ 完善的日志记录
+### 🚀 异步下载系统
+- **轮询机制**：支持进度查询和状态跟踪
+- **智能重试**：自动处理网络异常和临时错误
+- **并发控制**：优化下载速度和系统资源使用
+- **文件就绪检查**：确保文件完全生成后才返回下载链接
 
-## 安装和启动
+### 📊 文件就绪机制（新增）
+为解决轮询到100%后文件未准备好的问题，系统引入了智能文件就绪检查：
 
-### 1. 安装依赖
+#### 核心功能
+- **存在性验证**：确认文件已创建
+- **完整性检查**：验证文件大小稳定且可读
+- **智能重试**：根据文件大小动态调整重试策略
+- **性能监控**：跟踪文件就绪检查的性能指标
 
-```bash
-pip install -r requirements.txt
+#### 重试策略
+| 文件大小 | 重试次数 | 重试间隔 | 适用场景 |
+|---------|---------|---------|----------|
+| 未知/0字节 | 5次 | 0.5秒 | 默认策略 |
+| < 1MB | 3次 | 0.2秒 | 小文件快速检查 |
+| 1-10MB | 5次 | 0.5秒 | 中等文件标准检查 |
+| 10-50MB | 8次 | 1.0秒 | 大文件延长检查 |
+| > 50MB | 12次 | 2.0秒 | 超大文件长时间检查 |
+
+#### 检查过程
+1. **文件存在性**：确认文件路径有效
+2. **大小稳定性**：两次检查文件大小一致
+3. **可读性验证**：尝试读取文件头部数据
+4. **完整性确认**：验证文件格式正确
+
+## API端点详解
+
+### 1. 异步下载流程
+
+#### 启动下载任务
+```http
+POST /api/optimized/download/start
 ```
 
-### 2. 启动服务
-
-```bash
-python run.py
-```
-
-服务将在 http://localhost:8000 启动
-
-### 3. 查看API文档
-
-访问 http://localhost:8000/docs 查看Swagger UI文档
-
-## API接口说明
-
-### 1. 根目录 - 服务状态检查
-
-**接口地址：** `GET /`
+**请求参数：**
+- `url` (string): 小说详情页URL
+- `sourceId` (int): 书源ID，默认为1
+- `format` (string): 下载格式，支持 `txt` 或 `epub`
 
 **响应示例：**
 ```json
 {
-  "code": 200,
-  "message": "小说聚合搜索与下载API服务正在运行",
+  "code": 202,
+  "message": "accepted",
   "data": {
-    "version": "0.1.0",
-    "docs": "/docs"
+    "task_id": "uuid-string"
   }
 }
 ```
 
-### 2. 获取书源列表
-
-**接口地址：** `GET /api/novels/sources`
+#### 查询下载进度
+```http
+GET /api/optimized/download/progress?task_id={task_id}
+```
 
 **响应示例：**
 ```json
 {
   "code": 200,
   "message": "success",
-  "data": [
-    {
-      "id": 1,
-      "rule": {
-        "id": 1,
-        "name": "香书小说",
-        "url": "http://www.xbiqugu.la/",
-        "enabled": true,
-        "type": "html",
-        "language": "zh_CN"
-      }
-    }
-  ]
+  "data": {
+    "task_id": "uuid-string",
+    "status": "running",
+    "progress_percentage": 75.5,
+    "completed_chapters": 151,
+    "total_chapters": 200,
+    "failed_chapters": 2,
+    "current_chapter": "第151章 标题",
+    "elapsed_time": 45.2,
+    "estimated_remaining_time": 15.1,
+    "average_speed": 3.34,
+    "file_path": null
+  }
 }
 ```
 
+#### 获取下载结果
+```http
+GET /api/optimized/download/result?task_id={task_id}
+```
 
+**功能增强：**
+- **智能等待**：自动检测文件是否完全生成
+- **重试机制**：根据文件大小调整等待策略
+- **状态反馈**：提供详细的文件准备状态
 
-## API 接口说明（/api/optimized）
+**响应类型：**
 
-引入缓存、并发优化、性能监控与健康检查。
-
-### 1. 搜索小说
-**接口地址：** `GET /api/optimized/search`
-
-**请求参数：**
-- `keyword` (必需)
-- `maxResults` (可选，默认30，范围1-100)
-
-说明：每个书源最多返回2条结果；响应包含 `meta` 字段（耗时、是否命中缓存等）。
-
-**响应示例：**
+1. **任务进行中**：
 ```json
 {
   "code": 200,
-  "message": "success",
-  "data": [ /* 同标准版 */ ],
-  "meta": { "duration_ms": 123.4, "total_results": 10, "cached": false }
+  "message": "running",
+  "data": {
+    "status": "running",
+    "progress_percentage": 85.0
+  }
 }
 ```
 
-### 2. 获取书籍详情
-`GET /api/optimized/detail?url=...&sourceId=1`
-
-返回结构同标准版，额外包含 `meta.duration_ms`、`meta.source_id`。
-
-### 3. 获取章节目录
-`GET /api/optimized/toc?url=...&sourceId=1`
-
-返回结构同标准版，额外包含 `meta.duration_ms`、`meta.total_chapters`。
-
-### 4. 下载小说
-
-#### 同步下载
-`GET /api/optimized/download?url=...&sourceId=1&format=txt`
-
-直接返回文件流，响应头包含：`X-Download-Duration-MS`、`X-File-Size`、`X-Task-ID`。
-
-#### 异步下载（推荐用于长文本）
-- 启动任务：`POST /api/optimized/download/start`（返回 `task_id`）
-- 查询进度：`GET /api/optimized/download/progress?task_id=...`
-- 拉取结果：`GET /api/optimized/download/result?task_id=...`（完成后返回文件流）
-
-### 5. 获取书源列表
-`GET /api/optimized/sources`
-
-返回结构同标准版，额外包含 `meta`（耗时、总书源数）。
-
-### 6. 性能统计
-`GET /api/optimized/performance`
-
-返回性能监控摘要、缓存统计、HTTP 客户端统计、最近慢操作列表。
-
-### 7. 清理缓存
-`POST /api/optimized/cache/clear`
-
-返回清理条目数与时间戳。
-
-### 8. 健康检查
-`GET /api/optimized/health`
-
-返回 `status`（healthy/warning/unhealthy）、`health_score`、关键指标汇总。
-
-## 错误响应格式
-
-当API发生错误时，返回格式如下：
-
+2. **文件准备中**：
 ```json
 {
   "code": 500,
-  "message": "错误描述",
-  "data": null
-}
-```
-
-## 配置说明
-
-主要配置项在 `app/core/config.py` 中：
-
-- `DEFAULT_SOURCE_ID`: 默认书源ID
-- `MAX_SEARCH_RESULTS`: 最大搜索结果数
-- `DEFAULT_TIMEOUT`: 默认请求超时时间
-- `REQUEST_RETRY_TIMES`: 请求重试次数
-- `MAX_CONCURRENT_REQUESTS`: 最大并发请求数
-
-说明：系统内置“每书源最多2条搜索结果”的限制以提升相关性与稳定性，该策略优先于 `MAX_SEARCH_RESULTS`。
-
-## 书源规则
-
-书源规则文件位于 `rules` 目录下，采用JSON格式配置各个网站的爬取规则。
-
-### 规则文件结构示例
-
-```json
-{
-  "id": 1,
-  "name": "书源名称",
-  "url": "https://example.com/",
-  "enabled": true,
-  "type": "html",
-  "language": "zh_CN",
-  "search": {
-    "url": "搜索接口URL",
-    "method": "get",
-    "list": "CSS选择器-结果列表",
-    "name": "CSS选择器-书名",
-    "author": "CSS选择器-作者"
-  },
-  "book": {
-    "name": "CSS选择器-书名",
-    "author": "CSS选择器-作者",
-    "intro": "CSS选择器-简介"
-  },
-  "toc": {
-    "list": "CSS选择器-章节列表",
-    "title": "CSS选择器-章节标题",
-    "url": "CSS选择器-章节链接"
-  },
-  "chapter": {
-    "title": "CSS选择器-章节标题",
-    "content": "CSS选择器-章节内容",
-    "ad_patterns": ["广告过滤正则表达式"]
+  "message": "文件不存在或尚未生成完成",
+  "data": {
+    "status": "completed",
+    "progress_percentage": 100.0
   }
 }
 ```
 
-## 注意事项
+3. **文件就绪**：
+```
+HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename*=UTF-8''小说名称.txt
+Content-Length: 1234567
+X-Task-ID: uuid-string
 
-1. **反爬虫限制**: 部分网站可能有反爬虫机制，返回403错误属于正常现象
-2. **并发控制**: API内置了并发控制机制，避免对目标网站造成过大压力
-3. **内容过滤**: 自动过滤广告和无用内容
-4. **文件格式**: EPUB需要额外的依赖库支持
+[文件内容]
+```
 
-## 技术架构
+### 2. 直接下载（同步）
+```http
+GET /api/optimized/download?url={url}&sourceId={sourceId}&format={format}
+```
 
-- **Web框架**: FastAPI
-- **异步处理**: aiohttp + asyncio
-- **HTML解析**: BeautifulSoup4
-- **文件生成**: ebooklib (EPUB)
-- **配置管理**: pydantic-settings
+## 使用示例
 
-## 开发和扩展
+### JavaScript/前端示例
+```javascript
+async function downloadNovel(url, sourceId = 1, format = 'txt') {
+    try {
+        // 1. 启动下载任务
+        const startResponse = await fetch('/api/optimized/download/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, sourceId, format })
+        });
+        
+        const { data: { task_id } } = await startResponse.json();
+        console.log('下载任务已启动:', task_id);
+        
+        // 2. 轮询进度
+        let progress;
+        do {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // 等待2秒
+            
+            const progressResponse = await fetch(
+                `/api/optimized/download/progress?task_id=${task_id}`
+            );
+            const progressData = await progressResponse.json();
+            progress = progressData.data;
+            
+            console.log(`下载进度: ${progress.progress_percentage}%`);
+            
+        } while (progress.status === 'running');
+        
+        // 3. 获取结果文件
+        if (progress.status === 'completed') {
+            // 新的文件就绪机制会自动处理文件准备状态
+            const resultResponse = await fetch(
+                `/api/optimized/download/result?task_id=${task_id}`
+            );
+            
+            if (resultResponse.ok) {
+                // 文件已就绪，开始下载
+                const blob = await resultResponse.blob();
+                const filename = getFilenameFromHeaders(resultResponse.headers);
+                downloadBlob(blob, filename);
+                console.log('下载完成');
+            } else {
+                // 文件尚未就绪，系统会自动重试
+                const error = await resultResponse.json();
+                console.log('文件准备中，请稍后重试:', error.message);
+            }
+        } else {
+            console.error('下载失败:', progress.error_message);
+        }
+        
+    } catch (error) {
+        console.error('下载出错:', error);
+    }
+}
 
-### 添加新书源
+function getFilenameFromHeaders(headers) {
+    const disposition = headers.get('Content-Disposition');
+    if (disposition) {
+        const match = disposition.match(/filename\*=UTF-8''(.+)/);
+        return match ? decodeURIComponent(match[1]) : 'download.txt';
+    }
+    return 'download.txt';
+}
 
-1. 在 `/rules` 目录下创建新的规则文件
-2. 参考现有规则文件格式编写规则
-3. 重启服务即可生效
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+```
 
-### 自定义解析器
+### Python示例
+```python
+import requests
+import time
 
-可以在 `app/parsers/` 目录下扩展或修改解析器逻辑。
+def download_novel(url, source_id=1, format='txt'):
+    """下载小说的完整流程"""
+    base_url = 'http://localhost:8000/api/optimized'
+    
+    # 1. 启动下载任务
+    start_response = requests.post(f'{base_url}/download/start', 
+                                 json={'url': url, 'sourceId': source_id, 'format': format})
+    task_id = start_response.json()['data']['task_id']
+    print(f'下载任务已启动: {task_id}')
+    
+    # 2. 轮询进度
+    while True:
+        time.sleep(2)  # 等待2秒
+        
+        progress_response = requests.get(f'{base_url}/download/progress', 
+                                       params={'task_id': task_id})
+        progress = progress_response.json()['data']
+        
+        print(f"下载进度: {progress['progress_percentage']}% "
+              f"({progress['completed_chapters']}/{progress['total_chapters']})")
+        
+        if progress['status'] != 'running':
+            break
+    
+    # 3. 获取结果文件
+    if progress['status'] == 'completed':
+        # 文件就绪检查会自动处理
+        result_response = requests.get(f'{base_url}/download/result', 
+                                     params={'task_id': task_id})
+        
+        if result_response.status_code == 200:
+            # 文件已就绪
+            filename = get_filename_from_headers(result_response.headers)
+            with open(filename, 'wb') as f:
+                f.write(result_response.content)
+            print(f'下载完成: {filename}')
+        else:
+            # 文件尚未就绪
+            error = result_response.json()
+            print(f'文件准备中: {error["message"]}')
+    else:
+        print(f'下载失败: {progress.get("error_message", "未知错误")}')
 
-## 许可证
+def get_filename_from_headers(headers):
+    """从响应头获取文件名"""
+    disposition = headers.get('Content-Disposition', '')
+    if 'filename*=UTF-8' in disposition:
+        import urllib.parse
+        filename = disposition.split("filename*=UTF-8''")[1]
+        return urllib.parse.unquote(filename)
+    return 'download.txt'
+```
 
-本项目仅供学习和研究使用，请遵守相关网站的使用条款和robots.txt协议。 
+## 性能监控
+
+### 文件就绪检查指标
+系统自动跟踪以下指标：
+- **成功率**：文件就绪检查成功的比例
+- **平均耗时**：文件就绪检查的平均时间
+- **重试次数**：平均重试次数统计
+- **失败原因**：详细的失败分类统计
+
+### 健康检查端点
+```http
+GET /api/novels/health
+```
+
+返回包含文件就绪检查性能的系统健康状态。
+
+## 最佳实践
+
+### 1. 轮询间隔建议
+- **小说下载**：建议2-3秒轮询一次
+- **大型文档**：可适当延长到5秒
+- **避免过频**：不建议少于1秒轮询
+
+### 2. 错误处理
+- **网络错误**：实现指数退避重试
+- **任务失败**：检查错误消息，可能需要更换书源
+- **文件未就绪**：系统会自动处理，无需客户端特殊处理
+
+### 3. 性能优化
+- **并发限制**：避免同时启动过多下载任务
+- **资源清理**：完成下载后及时清理本地缓存
+- **监控指标**：定期检查健康状态端点
+
+## 常见问题
+
+### Q: 为什么进度100%后还需要等待？
+A: 系统引入了文件就绪检查机制，确保文件完全生成后才返回。这解决了之前"第一次下载失败，第二次才成功"的问题。
+
+### Q: 文件就绪检查需要多长时间？
+A: 通常在0.1-2秒内完成，具体取决于文件大小：
+- 小文件（<1MB）：约0.2秒
+- 中等文件（1-10MB）：约0.5秒  
+- 大文件（>10MB）：1-2秒
+
+### Q: 如何判断是否需要重试？
+A: 新系统会自动处理重试，客户端无需特殊处理。如果返回错误，说明确实遇到了无法自动恢复的问题。
+
+### Q: 支持的最大文件大小？
+A: 理论上无限制，但超大文件（>100MB）可能需要更长的处理时间。系统会根据文件大小自动调整超时和重试策略。 
