@@ -539,12 +539,14 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
     - 流式传输：高效的文件传输
     - 智能缓存：避免重复传输
     - 自动清理：防止磁盘空间浪费
+    - 文件就绪检查：确保文件完全生成后再返回
     """
     try:
         from app.utils.progress_tracker import progress_tracker
         from fastapi.responses import StreamingResponse
         import urllib.parse
         from pathlib import Path
+        import asyncio
         
         progress = progress_tracker.get_progress(task_id)
         if not progress:
@@ -558,8 +560,66 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
             return JSONResponse(status_code=500, content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()})
         
         file_path = progress.file_path
-        if not file_path or not os.path.exists(file_path):
-            return JSONResponse(status_code=500, content={"code": 500, "message": "文件不存在或尚未生成", "data": progress.to_dict()})
+        if not file_path:
+            return JSONResponse(status_code=500, content={"code": 500, "message": "文件路径未设置", "data": progress.to_dict()})
+        
+        # 文件就绪检查：确保文件存在且完全写入完成
+        async def is_file_ready(file_path: str, max_retries: int = 5, retry_delay: float = 0.5) -> bool:
+            """检查文件是否已经完全写入完成"""
+            for attempt in range(max_retries):
+                if not os.path.exists(file_path):
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    return False
+                
+                try:
+                    # 检查文件是否可以正常读取且大小稳定
+                    file_obj = Path(file_path)
+                    initial_size = file_obj.stat().st_size
+                    
+                    # 如果文件大小为0，说明还在写入中
+                    if initial_size == 0:
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        return False
+                    
+                    # 等待一小段时间后再次检查文件大小，确保写入完成
+                    await asyncio.sleep(0.1)
+                    final_size = file_obj.stat().st_size
+                    
+                    # 如果文件大小稳定且可以打开，说明写入完成
+                    if initial_size == final_size:
+                        try:
+                            with open(file_path, "rb") as f:
+                                # 尝试读取文件头，确保文件可访问
+                                f.read(1024)
+                            return True
+                        except (IOError, OSError):
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(retry_delay)
+                                continue
+                            return False
+                    else:
+                        # 文件大小还在变化，继续等待
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        return False
+                        
+                except (FileNotFoundError, OSError) as e:
+                    logger.warning(f"文件检查失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    return False
+            
+            return False
+        
+        # 执行文件就绪检查
+        if not await is_file_ready(file_path):
+            return JSONResponse(status_code=500, content={"code": 500, "message": "文件不存在或尚未生成完成", "data": progress.to_dict()})
         
         file_obj = Path(file_path)
         filename = file_obj.name

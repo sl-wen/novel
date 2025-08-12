@@ -127,7 +127,10 @@ class Crawler:
                 book, chapters, download_dir, format
             )
 
-            # 6.1 记录生成文件路径
+            # 6.1 验证文件完整性
+            await self._verify_file_integrity(file_path)
+
+            # 6.2 记录生成文件路径
             if task_id:
                 progress_tracker.set_file_path(task_id, str(file_path))
 
@@ -516,6 +519,43 @@ class Crawler:
 
         logger.info(f"EPUB文件生成完成: {result_path}")
         return Path(result_path)
+
+    async def _verify_file_integrity(self, file_path: Path):
+        """验证文件完整性"""
+        try:
+            # 检查文件是否存在
+            if not file_path.exists():
+                raise ValueError("文件不存在")
+            
+            # 检查文件大小
+            file_size = file_path.stat().st_size
+            if file_size == 0:
+                raise ValueError("文件大小为0")
+            
+            # 根据文件类型进行不同的验证
+            if file_path.suffix.lower() == '.txt':
+                # TXT文件验证
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    # 检查文件是否为空
+                    if not content.strip():
+                        raise ValueError("文件内容为空")
+                    # 检查文件是否包含基本的书籍信息
+                    if "书名：" not in content:
+                        raise ValueError("文件缺少书名信息")
+            elif file_path.suffix.lower() == '.epub':
+                # EPUB文件验证 - 简单检查文件头
+                with open(file_path, "rb") as f:
+                    # EPUB文件应该是ZIP格式，检查ZIP文件头
+                    header = f.read(4)
+                    if header != b'PK\x03\x04':
+                        raise ValueError("EPUB文件格式无效")
+            
+            logger.info(f"文件完整性验证通过: {file_path} (大小: {file_size} 字节)")
+            
+        except Exception as e:
+            logger.error(f"文件完整性验证失败: {file_path} - {str(e)}")
+            raise
 
     async def _cleanup_temp_files(self, download_dir: Path):
         """清理临时文件"""
