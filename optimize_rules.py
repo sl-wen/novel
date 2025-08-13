@@ -314,7 +314,7 @@ def main():
     optimizer = BookSourceOptimizer()
     
     # 设置路径
-    rules_dir = "/workspace/rules"
+    rules_dir = "rules/"
     
     print("开始优化书源配置文件...")
     print(f"规则目录: {rules_dir}")
@@ -326,7 +326,7 @@ def main():
     report = optimizer.generate_report(rules_dir, optimized_files)
     
     # 保存报告
-    report_file = "/workspace/optimization_report.md"
+    report_file = "/optimization_report.md"
     with open(report_file, 'w', encoding='utf-8') as f:
         f.write(report)
     

@@ -1,0 +1,51 @@
+{
+  "id": 9,
+  "name": "笔趣阁22",
+  "url": "https://www.22biqu.com/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "https://www.22biqu.com/ss/",
+    "method": "post",
+    "data": "{searchkey: %s, Submit: 搜索}",
+    "list": "body > div.container > div > div > ul > li",
+    "name": "span.s2 > a",
+    "author": "span.s4",
+    "category": "span.s1",
+    "latest": "span.s3",
+    "update": "span.s5",
+    "status": "",
+    "word_count": ""
+  },
+  "book": {
+    "name": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": "meta[property=\"og:description\"]",
+    "category": "meta[property=\"og:novel:category\"]",
+    "cover": "meta[property=\"og:image\"]",
+    "latest": "meta[property=\"og:novel:lastest_chapter_name\"]",
+    "update": "meta[property=\"og:novel:update_time\"]",
+    "status": "",
+    "word_count": ""
+  },
+  "toc": {
+    "list": "dd > a",
+    "title": "text",
+    "url": "href",
+    "has_pages": true,
+    "next_page": "#indexselect > option"
+  },
+  "chapter": {
+    "title": ".title",
+    "content": "#content,.content,.read-content,#chapter-content,.chapter-content,.book-content,#book-content,.novel-content,#novel-content,.text,#text,article,.article,.post-content,.entry-content",
+    "ad_patterns": [
+      "\\(本章完\\)",
+      "^首页.*书库.*排行.*$",
+      "^最新章节目录.*$",
+      "^作者：.*?更新时间：.*$",
+      "^如遇到内容无法显示或者显示不全.*$",
+      "^.*请更换谷歌浏览器.*$"
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "id": 2,
+  "name": "书海阁小说网",
+  "url": "https://www.shuhaige.net/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "dd > h3 > a",
+    "method": "post",
+    "data": "{searchkey: %s, searchtype: all}",
+    "list": "#sitembox > dl",
+    "name": "dd > h3 > a",
+    "author": "dd:nth-child(3) > span:nth-child(1)",
+    "category": "dd:nth-child(3) > span:nth-child(3)",
+    "latest": "dd:nth-child(5) > a",
+    "update": "dd:nth-child(5) > span",
+    "status": "dd:nth-child(3) > span:nth-child(2)",
+    "word_count": "dd:nth-child(3) > span:nth-child(4)"
+  },
+  "book": {
+    "name": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": "#intro > p:nth-child(1)",
+    "category": "meta[property=\"og:novel:category\"]",
+    "cover": "meta[property=\"og:image\"]",
+    "latest": "meta[property=\"og:novel:latest_chapter_name\"]",
+    "update": "meta[property=\"og:novel:update_time\"]",
+    "status": "meta[property=\"og:novel:status\"]",
+    "word_count": ""
+  },
+  "toc": {
+    "list": "dd > a",
+    "title": "text",
+    "url": "href",
+    "has_pages": false,
+    "next_page": ""
+  },
+  "chapter": {
+    "title": ".bookname > h1",
+    "content": "#content,.content,.read-content,#chapter-content,.chapter-content,.book-content,#book-content,.novel-content,#novel-content,.text,#text,article,.article,.post-content,.entry-content",
+    "ad_patterns": [
+      "本小章还未完，请点击下一页继续阅读后面精彩内容！",
+      "小主，这个章节后面还有哦，请点击下一页继续阅读，后面更精彩！",
+      "这章没有结束，请点击下一页继续阅读！",
+      "喜欢.*?请大家收藏：(.*?).*?书海阁小说网更新速度全网最快。",
+      "\\(本章完\\)",
+      "^首页.*书库.*排行.*$",
+      "^最新章节目录.*$",
+      "^作者：.*?更新时间：.*$",
+      "^如遇到内容无法显示或者显示不全.*$",
+      "^.*请更换谷歌浏览器.*$"
+    ]
+  }
+}

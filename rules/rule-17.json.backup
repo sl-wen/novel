@@ -1,0 +1,52 @@
+{
+  "id": 17,
+  "name": "八一中文网",
+  "url": "http://www.81zwwww.com/",
+  "enabled": true,
+  "type": "html",
+  "language": "zh_CN",
+  "search": {
+    "url": "http://www.81zwwww.com/search/",
+    "method": "post",
+    "data": "{searchkey: %s, Submit: ''}",
+    "list": ".mb20 > div > div",
+    "name": ".commend-title > a",
+    "author": ".commend-title > span",
+    "category": "",
+    "latest": "",
+    "update": "",
+    "status": "",
+    "word_count": ""
+  },
+  "book": {
+    "name": "meta[property=\"og:novel:book_name\"]",
+    "author": "meta[property=\"og:novel:author\"]",
+    "intro": ".info-main-intro > p",
+    "category": "meta[property=\"og:novel:category\"]",
+    "cover": "meta[property=\"og:image\"]",
+    "latest": ".info-main-wap > a > p@js:r=r.replaceAll('最新章节：','');",
+    "update": "meta[property=\"og:novel:update_time\"]",
+    "status": "",
+    "word_count": ""
+  },
+  "toc": {
+    "list": "dd > a",
+    "title": "text",
+    "url": "href",
+    "has_pages": false,
+    "next_page": ""
+  },
+  "chapter": {
+    "title": ".reader-main > h1@js:r=r.replace(/（\\d+ \\/ \\d+）/, '');",
+    "content": "#article,.content,.read-content,#content,#chapter-content,.chapter-content,.book-content,#book-content,.novel-content,#novel-content,.text,#text,article,.article,.post-content,.entry-content",
+    "ad_patterns": [
+      "\\(本章完\\)",
+      "最近转码严重，让我们更有动力，更新更快，麻烦你动动小手退出阅读模式。谢谢",
+      "^首页.*书库.*排行.*$",
+      "^最新章节目录.*$",
+      "^作者：.*?更新时间：.*$",
+      "^如遇到内容无法显示或者显示不全.*$",
+      "^.*请更换谷歌浏览器.*$"
+    ]
+  }
+}
