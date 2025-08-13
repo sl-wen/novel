@@ -488,10 +488,15 @@ class Crawler:
 
                 # 写入章节内容
                 for chapter in chapters:
-                    title = chapter.title
+                    # 清理章节标题，移除冗余信息
+                    title = self._clean_chapter_title(chapter.title)
+                    
                     f.write(f"{title}\n")
                     f.write("-" * 30 + "\n")
-                    f.write(chapter.content)
+                    
+                    # 清理章节内容
+                    content = self._clean_chapter_content_for_output(chapter.content)
+                    f.write(content)
                     f.write("\n\n")
 
         # 在线程池中执行文件写入
@@ -658,3 +663,70 @@ class Crawler:
             "elapsed_time": progress.elapsed_time,
             "average_speed": progress.average_speed,
         }
+
+    def _clean_chapter_title(self, title: str) -> str:
+        """清理章节标题，移除冗余信息"""
+        if not title:
+            return "未知章节"
+        
+        # 移除常见的元数据信息
+        patterns_to_remove = [
+            r"\s*小说：.*?作者：.*?字数：.*?更新时间.*?$",
+            r"\s*作者：.*?字数：\d+.*?更新时间.*?$",
+            r"\s*字数：\d+.*?更新时间.*?$",
+            r"\s*更新时间\s*[:：]\s*\d{4}-\d{2}-\d{2}.*?$",
+            r"\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}.*?$",
+        ]
+        
+        cleaned_title = title
+        for pattern in patterns_to_remove:
+            cleaned_title = re.sub(pattern, "", cleaned_title, flags=re.IGNORECASE)
+        
+        # 移除多余的空白字符
+        cleaned_title = re.sub(r"\s+", " ", cleaned_title).strip()
+        
+        return cleaned_title if cleaned_title else "未知章节"
+    
+    def _clean_chapter_content_for_output(self, content: str) -> str:
+        """清理章节内容用于输出"""
+        if not content:
+            return ""
+        
+        import html
+        
+        # 解码HTML实体
+        content = html.unescape(content)
+        
+        # 移除开头可能存在的章节标题重复信息
+        lines = content.split('\n')
+        cleaned_lines = []
+        
+        skip_first_lines = True
+        for i, line in enumerate(lines):
+            line = line.strip()
+            
+            # 跳过前面几行中的元数据信息
+            if skip_first_lines and i < 5:
+                # 如果这行包含元数据信息，跳过
+                if re.search(r"小说：|作者：|字数：|更新时间", line):
+                    continue
+                # 如果是章节标题重复，跳过
+                if re.search(r"^第[一二三四五六七八九十百千0-9]+章", line):
+                    continue
+                # 如果是分隔符行，跳过
+                if re.match(r"^[-=_]{3,}$", line):
+                    continue
+                # 如果遇到实际内容，停止跳过
+                if line and len(line) > 10 and not re.search(r"^(第|章节|目录)", line):
+                    skip_first_lines = False
+            
+            if line:
+                cleaned_lines.append(line)
+        
+        # 重新组合内容
+        cleaned_content = '\n'.join(cleaned_lines)
+        
+        # 确保段落间有适当的间距
+        cleaned_content = re.sub(r'\n{3,}', '\n\n', cleaned_content)
+        
+        return cleaned_content

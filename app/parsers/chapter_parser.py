@@ -342,6 +342,10 @@ class ChapterParser:
         """清理章节内容"""
         if not content:
             return ""
+        
+        # 首先解码HTML实体
+        import html
+        content = html.unescape(content)
 
         # 移除广告文本
         ad_patterns = self.chapter_rule.get("ad_patterns", [])
@@ -389,6 +393,11 @@ class ChapterParser:
             r"^如遇到内容无法显示或者显示不全.*$",
             r"^.*请更换谷歌浏览器.*$",
             r"^上一章$|^下一章$|^返回目录$|^加入书签$",
+            # 新增：处理章节标题中的元数据信息
+            r"小说：.*?作者：.*?字数：.*?更新时间.*?",
+            r"作者：.*?字数：\d+.*?更新时间.*?",
+            r"字数：\d+.*?更新时间.*?",
+            r"更新时间\s*[:：]\s*\d{4}-\d{2}-\d{2}.*?",
         ]
         # 新增：页面内元信息/冗余抬头
         meta_line_patterns = [
@@ -423,6 +432,9 @@ class ChapterParser:
             # 分隔符行（----- 或 ==== 等）
             if not drop and re.fullmatch(r"[\-=~_]{3,}", line.strip()):
                 drop = True
+            # 新增：移除包含大量元数据信息的行
+            if not drop and re.search(r"小说.*?作者.*?字数.*?更新时间", line):
+                drop = True
             if drop:
                 continue
             if chapter_header_regex.search(line):
@@ -436,7 +448,7 @@ class ChapterParser:
             prev_line = raw_line
         content = "\n".join([l for l in cleaned_lines if l.strip()])
 
-        # 若检测到大量“第X章”标题，认为混入目录，进一步剔除这些行
+        # 若检测到大量"第X章"标题，认为混入目录，进一步剔除这些行
         if chapter_header_count >= 5:
             content = "\n".join(
                 [l for l in content.split("\n") if not chapter_header_regex.search(l)]
