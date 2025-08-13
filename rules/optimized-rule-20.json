@@ -57,6 +57,10 @@
     "status": "meta[property=\"og:novel:status\"]"
   },
   "toc": {
+    "url_transform": {
+      "pattern": "^(https://www\\.wxsy\\.net/novel/\\d+)/?$",
+      "replacement": "\\1/chapter_1.html"
+    },
     "url": "href",
     "list": "dd > a",
     "item": ".biqunaicc > div:nth-child(2) > div > ul > li > a",
