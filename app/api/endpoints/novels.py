@@ -744,7 +744,7 @@ async def debug_toc_parsing(
     Args:
         url: 小说详情页URL
         source_id: 书源ID
-        skip_filter: 是否跳过章节过滤
+        skip_filter: 是否跳过章节过滤（已禁用过滤功能，此参数仅用于兼容）
     
     Returns:
         详细的解析调试信息
@@ -757,17 +757,36 @@ async def debug_toc_parsing(
         # 获取目录URL
         toc_url = parser._get_toc_url(url)
         
-        # 临时禁用过滤（如果需要）
-        if skip_filter:
-            original_filter = parser._filter_latest_chapters
-            parser._filter_latest_chapters = lambda chapters: chapters
-        
         # 解析目录
         chapters = await parser.parse(url)
         
-        # 恢复过滤
-        if skip_filter:
-            parser._filter_latest_chapters = original_filter
+        # 分析章节信息
+        chapter_analysis = {
+            "total_chapters": len(chapters),
+            "chapters_with_numbers": 0,
+            "chapters_without_numbers": 0,
+            "duplicate_analysis": {},
+            "number_distribution": {}
+        }
+        
+        # 分析章节编号分布
+        for chapter in chapters:
+            number = parser._extract_chapter_number(chapter.title)
+            if number > 0:
+                chapter_analysis["chapters_with_numbers"] += 1
+                if number in chapter_analysis["number_distribution"]:
+                    chapter_analysis["number_distribution"][number] += 1
+                else:
+                    chapter_analysis["number_distribution"][number] = 1
+            else:
+                chapter_analysis["chapters_without_numbers"] += 1
+        
+        # 检查重复编号
+        duplicates = {k: v for k, v in chapter_analysis["number_distribution"].items() if v > 1}
+        chapter_analysis["duplicate_analysis"] = {
+            "duplicate_numbers": duplicates,
+            "total_duplicates": sum(v - 1 for v in duplicates.values())
+        }
         
         debug_info = {
             "source_info": {
@@ -786,14 +805,20 @@ async def debug_toc_parsing(
                 "url_selector": source.rule.get("toc", {}).get("url", ""),
                 "has_pages": source.rule.get("toc", {}).get("has_pages", False),
             },
+            "processing_info": {
+                "latest_chapter_filter": "已禁用",
+                "deduplication": "已启用智能去重",
+                "sorting": "已启用智能排序"
+            },
+            "chapter_analysis": chapter_analysis,
             "results": {
                 "total_chapters": len(chapters),
-                "skip_filter": skip_filter,
                 "chapters": [
                     {
                         "order": chapter.order,
                         "title": chapter.title,
                         "url": chapter.url,
+                        "chapter_number": parser._extract_chapter_number(chapter.title)
                     }
                     for chapter in chapters
                 ],
