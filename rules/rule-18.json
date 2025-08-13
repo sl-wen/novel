@@ -58,6 +58,10 @@
     "word_count": "#count > span:nth-child(5)"
   },
   "toc": {
+    "url_transform": {
+      "pattern": "/book/",
+      "replacement": "/read/"
+    },
     "list": "dd > a",
     "title": "text",
     "url": "href",
