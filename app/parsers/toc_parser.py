@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 from typing import List, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -13,6 +14,48 @@ from app.models.chapter import ChapterInfo
 from app.utils.http_client import HttpClient
 
 logger = logging.getLogger(__name__)
+
+
+class TocParsingStats:
+    """目录解析统计信息"""
+    
+    def __init__(self):
+        self.start_time = time.time()
+        self.phases = {}
+        self.current_phase = None
+        self.current_phase_start = None
+    
+    def start_phase(self, phase_name: str):
+        """开始一个解析阶段"""
+        if self.current_phase:
+            self.end_phase()
+        
+        self.current_phase = phase_name
+        self.current_phase_start = time.time()
+        logger.debug(f"开始阶段: {phase_name}")
+    
+    def end_phase(self):
+        """结束当前解析阶段"""
+        if self.current_phase and self.current_phase_start:
+            duration = time.time() - self.current_phase_start
+            self.phases[self.current_phase] = duration
+            logger.debug(f"结束阶段: {self.current_phase} (耗时: {duration:.2f}s)")
+            self.current_phase = None
+            self.current_phase_start = None
+    
+    def get_total_time(self) -> float:
+        """获取总耗时"""
+        return time.time() - self.start_time
+    
+    def get_stats_summary(self) -> dict:
+        """获取统计摘要"""
+        if self.current_phase:
+            self.end_phase()
+        
+        return {
+            "total_time": round(self.get_total_time(), 2),
+            "phases": {k: round(v, 2) for k, v in self.phases.items()}
+        }
 
 
 class TocParser:
@@ -48,21 +91,33 @@ class TocParser:
         Returns:
             章节列表
         """
+        # 初始化性能统计
+        stats = TocParsingStats()
+        stats.start_phase("初始化")
+        
         logger.info(f"开始解析目录: {url}")
         
         # 获取目录URL
         toc_url = self._get_toc_url(url)
         logger.info(f"构建的目录URL: {toc_url}")
-
+        
+        stats.start_phase("获取页面内容")
+        
         # 多策略获取目录
         chapters = await self._parse_toc_with_strategies(toc_url)
         
         if not chapters:
+            stats.start_phase("备用解析")
             logger.warning(f"所有策略都未能获取到目录，尝试备用方法")
             chapters = await self._fallback_toc_parsing(url, toc_url)
-            logger.error(f"从书源 {self.source.rule.get('name', self.source.id)} 获取目录失败: {toc_url}")
-            return []
+            if not chapters:
+                logger.error(f"从书源 {self.source.rule.get('name', self.source.id)} 获取目录失败: {toc_url}")
+                stats.end_phase()
+                logger.info(f"解析统计: {stats.get_stats_summary()}")
+                return []
 
+        stats.start_phase("处理分页")
+        
         # 处理分页
         if self.toc_rule.get("has_pages", False) or self.toc_rule.get("pagination", False):
             logger.info("处理目录分页...")
@@ -74,12 +129,18 @@ class TocParser:
                 current_order += 1
             chapters.extend(additional_chapters)
 
+        stats.start_phase("数据清洗")
+        
         # 数据清洗和验证
         chapters = self._clean_and_validate_chapters(chapters)
+        
+        stats.start_phase("智能排序")
         
         # 智能排序章节（在去重之后进行）
         chapters = self._smart_sort_chapters(chapters)
 
+        stats.start_phase("结果处理")
+        
         # 截取指定范围的章节
         start_idx = max(0, start - 1)
         if end == float("inf"):
@@ -88,11 +149,17 @@ class TocParser:
             end_idx = min(len(chapters), int(end))
 
         result_chapters = chapters[start_idx:end_idx]
+        
+        # 结束统计
+        stats.end_phase()
+        stats_summary = stats.get_stats_summary()
 
         logger.info(
             f"书源 {self.source.rule.get('name', self.source.id)} "
             f"获取到 {len(result_chapters)} 个章节（总共 {len(chapters)} 个）"
         )
+        logger.info(f"解析性能统计: 总耗时 {stats_summary['total_time']}s, 各阶段: {stats_summary['phases']}")
+        
         return result_chapters
 
     def _get_toc_url(self, url: str) -> str:
@@ -160,9 +227,41 @@ class TocParser:
         Returns:
             HTML页面内容，失败返回None
         """
-        # 使用统一的HTTP客户端
-        referer = self.source.rule.get("url", "")
-        return await HttpClient.fetch_html(url, self.timeout, referer)
+        max_retries = 3
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                result = await HttpClient.fetch_html(url, self.timeout, self.source.rule.get("url", ""))
+                if result:
+                    if attempt > 0:
+                        logger.info(f"第 {attempt + 1} 次尝试成功获取页面: {url}")
+                    return result
+                
+                if attempt == 0:
+                    logger.warning(f"第一次请求失败，准备重试: {url}")
+                
+            except asyncio.TimeoutError:
+                logger.warning(f"请求超时（第 {attempt + 1} 次）: {url}")
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # 指数退避
+                    logger.info(f"等待 {delay:.1f} 秒后重试...")
+                    await asyncio.sleep(delay)
+                
+            except aiohttp.ClientError as e:
+                logger.warning(f"网络错误（第 {attempt + 1} 次）: {url} - {str(e)}")
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    await asyncio.sleep(delay)
+                
+            except Exception as e:
+                logger.error(f"未知错误（第 {attempt + 1} 次）: {url} - {str(e)}")
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    await asyncio.sleep(delay)
+        
+        logger.error(f"获取页面最终失败（共 {max_retries} 次尝试）: {url}")
+        return None
 
     async def _fetch_html_single(self, url: str) -> Optional[str]:
         """获取单个HTML页面（用于分页请求）

@@ -749,6 +749,8 @@ async def debug_toc_parsing(
     Returns:
         详细的解析调试信息
     """
+    start_time = time.time()
+    
     try:
         # 创建书源
         source = Source(source_id)
@@ -759,6 +761,8 @@ async def debug_toc_parsing(
         
         # 解析目录
         chapters = await parser.parse(url)
+        
+        parsing_time = time.time() - start_time
         
         # 分析章节信息
         chapter_analysis = {
@@ -788,6 +792,13 @@ async def debug_toc_parsing(
             "total_duplicates": sum(v - 1 for v in duplicates.values())
         }
         
+        # 性能分析
+        performance_analysis = {
+            "total_parsing_time": round(parsing_time, 2),
+            "average_time_per_chapter": round(parsing_time / len(chapters), 4) if chapters else 0,
+            "parsing_speed": round(len(chapters) / parsing_time, 2) if parsing_time > 0 else 0,  # 章节/秒
+        }
+        
         debug_info = {
             "source_info": {
                 "id": source.id,
@@ -811,6 +822,7 @@ async def debug_toc_parsing(
                 "sorting": "已启用智能排序"
             },
             "chapter_analysis": chapter_analysis,
+            "performance_analysis": performance_analysis,
             "results": {
                 "total_chapters": len(chapters),
                 "chapters": [
@@ -832,9 +844,13 @@ async def debug_toc_parsing(
         }
         
     except Exception as e:
+        parsing_time = time.time() - start_time
         logger.error(f"调试目录解析失败: {str(e)}")
         return {
             "code": 500,
             "message": f"调试失败: {str(e)}",
-            "data": None
+            "data": {
+                "error_time": round(parsing_time, 2),
+                "error_details": str(e)
+            }
         }
