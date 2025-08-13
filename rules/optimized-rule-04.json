@@ -59,6 +59,10 @@
     "word_count": ""
   },
   "toc": {
+    "url_transform": {
+      "pattern": "^(http://wap\\.99xs\\.info/)(\\d+)/?$",
+      "replacement": "\\1\\2/list.html"
+    },
     "list": "dd > a",
     "title": "text",
     "url": "href",

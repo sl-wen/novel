@@ -104,7 +104,26 @@ class TocParser:
         Returns:
             目录URL
         """
-        # 如果配置了目录URL模板，使用模板构建
+        # 检查是否有URL转换规则
+        url_transform = self.toc_rule.get("url_transform", {})
+        if url_transform:
+            pattern = url_transform.get("pattern", "")
+            replacement = url_transform.get("replacement", "")
+            if pattern and replacement:
+                import re
+                toc_url = re.sub(pattern, replacement, url)
+                logger.info(f"URL转换: {url} -> {toc_url}")
+                return toc_url
+        
+        # 检查是否有URL模板
+        url_template = self.toc_rule.get("url_template", "")
+        if url_template:
+            # 替换占位符
+            toc_url = url_template.replace("{book_url}", url).replace("{url}", url)
+            logger.info(f"URL模板: {url_template} -> {toc_url}")
+            return toc_url
+        
+        # 如果配置了目录URL模板（旧格式），使用模板构建
         toc_url_template = self.toc_rule.get("url", "")
         if toc_url_template and toc_url_template.startswith("http"):
             # 替换占位符
