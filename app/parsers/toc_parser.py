@@ -60,8 +60,6 @@ class TocParser:
         if not chapters:
             logger.warning(f"所有策略都未能获取到目录，尝试备用方法")
             chapters = await self._fallback_toc_parsing(url, toc_url)
-
-        if not chapters:
             logger.error(f"从书源 {self.source.rule.get('name', self.source.id)} 获取目录失败: {toc_url}")
             return []
 

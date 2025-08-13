@@ -239,9 +239,6 @@ class NovelService:
             all_results, keyword, max_results=max_results
         )
 
-        # 6.1 强制每个书源不超过上限（每个书源最多2个结果）
-        per_source_limit = 2
-        source_counts: Dict[int, int] = {}
         capped_results: List[SearchResult] = []
         
         # 按书源分组处理结果
@@ -257,19 +254,11 @@ class NovelService:
                 except Exception:
                     continue
         
-        # 从每个书源取前2个结果
         for sid, results in source_groups.items():
-            # 每个书源最多取2个结果
-            source_results = results[:per_source_limit]
-            capped_results.extend(source_results)
-            
+            capped_results.extend(results)
             # 如果总结果数达到上限，停止添加
             if len(capped_results) >= max_results:
                 break
-        
-        # 如果总结果数超过max_results，截取到指定数量
-        if len(capped_results) > max_results:
-            capped_results = capped_results[:max_results]
 
         # 7. 缓存结果
         await self.cache_manager.set_search_results(cache_key, capped_results)
@@ -293,13 +282,6 @@ class NovelService:
         # 这里可以添加更复杂的优先级逻辑
         return sorted(searchable_sources, key=lambda s: s.id)
 
-    async def _search_source_with_timeout(
-        self, source: Source, keyword: str
-    ) -> List[SearchResult]:
-        """带超时的书源搜索"""
-        search_parser = SearchParser(source)
-        return await search_parser.parse(keyword)
-
     def _filter_and_sort_results_optimized(
         self, results: List[SearchResult], keyword: str, max_results: int = 30
     ) -> List[SearchResult]:
@@ -309,7 +291,6 @@ class NovelService:
 
         # 使用集合进行快速去重
         seen_urls: Set[str] = set()
-        seen_titles: Set[str] = set()
         valid_results = []
 
         # 预计算关键词的小写版本，避免重复转换
@@ -324,13 +305,7 @@ class NovelService:
             if not self._is_valid_result_fast(result):
                 continue
 
-            # 标题去重（考虑相似度）
-            title_key = self._normalize_title(result.title)
-            if title_key in seen_titles:
-                continue
-
             seen_urls.add(result.url)
-            seen_titles.add(title_key)
 
             # 计算相关性得分（优化版）
             relevance_score = self._calculate_relevance_score_fast(
@@ -360,16 +335,6 @@ class NovelService:
             return False
 
         return True
-
-    def _normalize_title(self, title: str) -> str:
-        """标准化标题用于去重"""
-        if not title:
-            return ""
-
-        # 移除常见的标点符号和空格
-        normalized = title.lower().strip()
-        # 可以添加更多标准化逻辑
-        return normalized
 
     def _calculate_relevance_score_fast(
         self, result: SearchResult, keyword_lower: str
@@ -414,76 +379,6 @@ class NovelService:
             return results
         except Exception as e:
             logger.error(f"书源 {source.rule.get('name', source.id)} 搜索异常: {str(e)}")
-            return []
-
-    async def get_book_detail(self, url: str, source_id: int) -> Optional[Book]:
-        """获取书籍详情
-
-        Args:
-            url: 书籍详情页URL
-            source_id: 书源ID
-
-        Returns:
-            书籍详情对象
-        """
-        try:
-            source = self.sources.get(source_id)
-            if not source:
-                logger.error(f"未找到书源: {source_id}")
-                return None
-
-            book_parser = BookParser(source)
-            book = await book_parser.parse(url)
-            return book
-        except Exception as e:
-            logger.error(f"获取书籍详情失败: {str(e)}")
-            return None
-
-    async def get_toc(self, url: str, source_id: int) -> List[ChapterInfo]:
-        """获取小说目录
-
-        Args:
-            url: 书籍详情页URL
-            source_id: 书源ID
-
-        Returns:
-            章节信息列表
-        """
-        try:
-            source = self.sources.get(source_id)
-            if not source:
-                logger.error(f"未找到书源: {source_id}")
-                return []
-
-            toc_parser = TocParser(source)
-            chapters = await toc_parser.parse(url)
-            return chapters
-        except Exception as e:
-            logger.error(f"获取目录失败: {str(e)}")
-            return []
-
-    async def get_sources(self) -> List[Dict]:
-        """获取所有书源信息
-
-        Returns:
-            书源信息列表
-        """
-        try:
-            sources_list = []
-            for source_id, source in self.sources.items():
-                source_info = {
-                    "id": source_id,
-                    "rule": source.rule,
-                    "enabled": source.rule.get("enabled", True),
-                    "name": source.rule.get("name", f"书源{source_id}")
-                }
-                sources_list.append(source_info)
-            
-            # 按ID排序
-            sources_list.sort(key=lambda x: x["id"])
-            return sources_list
-        except Exception as e:
-            logger.error(f"获取书源列表失败: {str(e)}")
             return []
 
     async def download(
