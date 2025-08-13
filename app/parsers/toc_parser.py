@@ -532,15 +532,15 @@ class TocParser:
                 self._is_valid_chapter_url(chapter.url)):
                 valid_chapters.append(chapter)
         
-        # 过滤最新章节，只保留正文目录
-        filtered_chapters = self._filter_latest_chapters(valid_chapters)
+        # 智能合并重复章节，避免最新章节和正文目录的重复
+        merged_chapters = self._filter_latest_chapters(valid_chapters)
         
         # 重新排序
-        for i, chapter in enumerate(filtered_chapters):
+        for i, chapter in enumerate(merged_chapters):
             chapter.order = i + 1
         
-        logger.info(f"章节清洗完成：原始 {len(chapters)} 个，有效 {len(valid_chapters)} 个，过滤后 {len(filtered_chapters)} 个")
-        return filtered_chapters
+        logger.info(f"章节清洗完成：原始 {len(chapters)} 个，有效 {len(valid_chapters)} 个，合并后 {len(merged_chapters)} 个")
+        return merged_chapters
 
     async def _handle_pagination(self, toc_url: str) -> List[ChapterInfo]:
         """处理目录分页"""
@@ -784,18 +784,18 @@ class TocParser:
         return self._parse_toc(html, url)
 
     def _filter_latest_chapters(self, chapters: List[ChapterInfo]) -> List[ChapterInfo]:
-        """过滤最新章节，只保留正文目录
+        """智能合并重复章节，过滤掉最新章节区域的重复部分
         
         很多书源的目录结构是：
         1. 最新章节（最近更新的几章）
         2. 正文目录（从第一章开始的完整目录）
         
-        我们需要识别并过滤掉最新章节部分，只保留正文目录
+        我们需要识别最新章节部分，但保留其内容，只是避免重复
         """
         if len(chapters) <= 10:  # 如果章节数太少，不进行过滤
             return chapters
         
-        logger.info(f"开始过滤最新章节，原始章节数：{len(chapters)}")
+        logger.info(f"开始智能合并重复章节，原始章节数：{len(chapters)}")
         
         # 分析章节标题，寻找章节编号模式
         chapter_numbers = []
@@ -808,13 +808,20 @@ class TocParser:
         
         if main_content_start > 0:
             logger.info(f"检测到最新章节部分，从索引 {main_content_start} 开始是正文目录")
-            filtered_chapters = [chapter for _, _, chapter in chapter_numbers[main_content_start:]]
             
-            # 验证过滤结果的合理性
-            if len(filtered_chapters) >= len(chapters) * 0.5:  # 保留的章节应该占一半以上
-                return filtered_chapters
+            # 获取最新章节部分和正文目录部分
+            latest_chapters = [chapter for _, _, chapter in chapter_numbers[:main_content_start]]
+            main_chapters = [chapter for _, _, chapter in chapter_numbers[main_content_start:]]
+            
+            # 智能合并：移除正文目录中已存在的章节，保留最新章节中的独有章节
+            merged_chapters = self._merge_chapters_intelligently(latest_chapters, main_chapters)
+            
+            # 验证合并结果的合理性
+            if len(merged_chapters) >= len(chapters) * 0.3:  # 保留的章节应该占30%以上
+                logger.info(f"章节合并完成：原始 {len(chapters)} 个，合并后 {len(merged_chapters)} 个")
+                return merged_chapters
             else:
-                logger.warning("过滤结果异常，保留原始章节列表")
+                logger.warning("合并结果异常，保留原始章节列表")
                 return chapters
         else:
             logger.info("未检测到最新章节部分，保留原始章节列表")
@@ -945,6 +952,122 @@ class TocParser:
                         return j
         
         return 0  # 未检测到最新章节，从头开始
+    
+    def _merge_chapters_intelligently(self, latest_chapters: List[ChapterInfo], main_chapters: List[ChapterInfo]) -> List[ChapterInfo]:
+        """智能合并最新章节和正文目录，避免重复
+        
+        Args:
+            latest_chapters: 最新章节列表
+            main_chapters: 正文目录列表
+            
+        Returns:
+            合并后的章节列表
+        """
+        if not latest_chapters:
+            return main_chapters
+        if not main_chapters:
+            return latest_chapters
+        
+        logger.info(f"开始智能合并：最新章节 {len(latest_chapters)} 个，正文目录 {len(main_chapters)} 个")
+        
+        # 提取所有章节的编号和标题，用于去重判断
+        main_chapter_info = set()
+        for chapter in main_chapters:
+            number = self._extract_chapter_number(chapter.title)
+            # 标准化标题用于比较
+            normalized_title = self._normalize_title_for_comparison(chapter.title)
+            main_chapter_info.add((number, normalized_title))
+        
+        # 过滤最新章节中与正文目录重复的章节
+        unique_latest_chapters = []
+        duplicates_count = 0
+        
+        for chapter in latest_chapters:
+            number = self._extract_chapter_number(chapter.title)
+            normalized_title = self._normalize_title_for_comparison(chapter.title)
+            
+            # 检查是否与正文目录重复
+            is_duplicate = False
+            
+            # 方法1：章节号匹配
+            if number > 0 and (number, normalized_title) in main_chapter_info:
+                is_duplicate = True
+            
+            # 方法2：标题相似度匹配（用于没有章节号的情况）
+            elif number == 0:
+                for main_number, main_title in main_chapter_info:
+                    if self._titles_similar(normalized_title, main_title):
+                        is_duplicate = True
+                        break
+            
+            if is_duplicate:
+                duplicates_count += 1
+                logger.debug(f"过滤重复章节：{chapter.title}")
+            else:
+                unique_latest_chapters.append(chapter)
+        
+        # 合并结果：独有的最新章节 + 完整的正文目录
+        merged_chapters = unique_latest_chapters + main_chapters
+        
+        logger.info(f"合并完成：过滤了 {duplicates_count} 个重复章节，最终保留 {len(merged_chapters)} 个章节")
+        return merged_chapters
+    
+    def _normalize_title_for_comparison(self, title: str) -> str:
+        """标准化章节标题用于比较"""
+        if not title:
+            return ""
+        
+        # 移除常见的前缀和后缀
+        normalized = title.strip()
+        
+        # 移除章节编号，只保留标题内容
+        patterns_to_remove = [
+            r'^第\s*\d+\s*章[\s\-:：]*',
+            r'^第\s*[一二三四五六七八九十百千万]+\s*章[\s\-:：]*',
+            r'^chapter\s*\d+[\s\-:：]*',
+            r'^ch\s*\d+[\s\-:：]*',
+            r'^\d+[\s\.\-:：]*',
+        ]
+        
+        for pattern in patterns_to_remove:
+            normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
+        
+        # 统一空白字符
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        
+        return normalized.lower()
+    
+    def _titles_similar(self, title1: str, title2: str, threshold: float = 0.8) -> bool:
+        """判断两个标题是否相似"""
+        if not title1 or not title2:
+            return False
+        
+        # 简单的相似度判断：计算公共子字符串比例
+        if title1 == title2:
+            return True
+        
+        # 计算最长公共子序列的长度
+        def lcs_length(s1: str, s2: str) -> int:
+            m, n = len(s1), len(s2)
+            dp = [[0] * (n + 1) for _ in range(m + 1)]
+            
+            for i in range(1, m + 1):
+                for j in range(1, n + 1):
+                    if s1[i-1] == s2[j-1]:
+                        dp[i][j] = dp[i-1][j-1] + 1
+                    else:
+                        dp[i][j] = max(dp[i-1][j], dp[i][j-1])
+            
+            return dp[m][n]
+        
+        lcs_len = lcs_length(title1, title2)
+        max_len = max(len(title1), len(title2))
+        
+        if max_len == 0:
+            return False
+        
+        similarity = lcs_len / max_len
+        return similarity >= threshold
     
     def _get_title_pattern(self, title: str) -> str:
         """获取章节标题的模式"""
