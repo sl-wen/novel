@@ -63,7 +63,7 @@
       "pattern": "^(http://wap\\.99xs\\.info/)(\\d+)/?$",
       "replacement": "\\1\\2/list.html"
     },
-    "list": "dd > a",
+    "list": "dd > a, .list-chapter a, .chapter-list a, .catalog a, ul li a, .mulu a",
     "title": "text",
     "url": "href",
     "has_pages": false,

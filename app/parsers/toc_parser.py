@@ -810,8 +810,11 @@ class TocParser:
         2. 正文目录（从第一章开始的完整目录）
         
         我们需要识别并过滤掉最新章节部分，只保留正文目录
+        
+        修改：使过滤逻辑更加保守，避免误删正常章节
         """
-        if len(chapters) <= 10:  # 如果章节数太少，不进行过滤
+        if len(chapters) <= 15:  # 提高阈值，章节数较少时不进行过滤
+            logger.info(f"章节数量较少({len(chapters)})，跳过最新章节过滤")
             return chapters
         
         logger.info(f"开始过滤最新章节，原始章节数：{len(chapters)}")
@@ -826,14 +829,23 @@ class TocParser:
         main_content_start = self._find_main_content_start(chapter_numbers)
         
         if main_content_start > 0:
-            logger.info(f"检测到最新章节部分，从索引 {main_content_start} 开始是正文目录")
+            logger.info(f"检测到可能的最新章节部分，从索引 {main_content_start} 开始是正文目录")
             filtered_chapters = [chapter for _, _, chapter in chapter_numbers[main_content_start:]]
             
-            # 验证过滤结果的合理性
-            if len(filtered_chapters) >= len(chapters) * 0.5:  # 保留的章节应该占一半以上
+            # 更严格的验证过滤结果的合理性
+            filter_ratio = len(filtered_chapters) / len(chapters)
+            
+            # 只有在以下条件都满足时才应用过滤：
+            # 1. 保留的章节占比至少70%
+            # 2. 被过滤掉的章节数量不超过12个
+            # 3. 过滤后的章节数量至少有10个
+            if (filter_ratio >= 0.7 and 
+                (len(chapters) - len(filtered_chapters)) <= 12 and 
+                len(filtered_chapters) >= 10):
+                logger.info(f"应用章节过滤，保留 {len(filtered_chapters)} 个章节（过滤比例：{filter_ratio:.2f}）")
                 return filtered_chapters
             else:
-                logger.warning("过滤结果异常，保留原始章节列表")
+                logger.warning(f"过滤结果不合理，保留原始章节列表。过滤比例：{filter_ratio:.2f}，被过滤：{len(chapters) - len(filtered_chapters)}个")
                 return chapters
         else:
             logger.info("未检测到最新章节部分，保留原始章节列表")
@@ -905,63 +917,79 @@ class TocParser:
             
         Returns:
             正文目录开始的索引位置，0表示从头开始
+        
+        修改：使检测逻辑更加保守，减少误判
         """
-        if len(chapter_numbers) <= 10:
+        if len(chapter_numbers) <= 15:  # 提高阈值
             return 0
         
-        # 策略1：寻找章节号为1的位置
+        # 策略1：寻找章节号为1的位置（更严格的条件）
         for i, (idx, number, chapter) in enumerate(chapter_numbers):
             if number == 1:
                 # 检查这个位置之前是否有更大的章节号（表明前面是最新章节）
-                if i > 0:
+                if i > 5:  # 提高位置要求，至少要在第6个位置之后
                     prev_numbers = [num for _, num, _ in chapter_numbers[:i] if num > 0]
-                    if prev_numbers and max(prev_numbers) > 10:  # 前面有较大的章节号
-                        logger.info(f"在索引 {i} 找到第1章，前面有最新章节")
-                        return i
+                    if prev_numbers and max(prev_numbers) > 20:  # 提高章节号差异要求
+                        # 还要检查前面的章节是否真的像"最新章节"
+                        prev_titles = [chapter.title for _, _, chapter in chapter_numbers[:i]]
+                        latest_keywords = ['最新', '更新', '新增', 'latest', 'new', 'update']
+                        has_latest_keywords = any(any(keyword in title.lower() for keyword in latest_keywords) 
+                                                for title in prev_titles)
+                        
+                        if has_latest_keywords or len(prev_numbers) <= 8:  # 最新章节部分不应该太长
+                            logger.info(f"在索引 {i} 找到第1章，前面有最新章节（最大章节号：{max(prev_numbers)}）")
+                            return i
                 
                 # 如果第1章在前面几个位置，可能整个都是正文
-                if i <= 5:
+                if i <= 3:  # 降低阈值，更保守
                     return 0
         
-        # 策略2：寻找章节号重置点（从大数字突然跳到小数字）
+        # 策略2：寻找章节号重置点（从大数字突然跳到小数字）- 更严格的条件
         for i in range(1, len(chapter_numbers)):
             curr_number = chapter_numbers[i][1]
             prev_number = chapter_numbers[i-1][1]
             
             if (curr_number > 0 and prev_number > 0 and 
                 curr_number < prev_number and 
-                prev_number - curr_number > 50):  # 章节号大幅下降
+                prev_number - curr_number > 100 and  # 提高章节号差异要求
+                i <= 10):  # 重置点应该在前面部分
                 logger.info(f"在索引 {i} 检测到章节号重置：{prev_number} -> {curr_number}")
                 return i
         
-        # 策略3：检测章节标题模式的变化
-        title_patterns = []
-        for _, _, chapter in chapter_numbers:
-            pattern = self._get_title_pattern(chapter.title)
-            title_patterns.append(pattern)
-        
-        # 寻找模式变化点
-        for i in range(10, min(len(title_patterns), 50)):
-            # 检查前面10个和后面10个的模式
-            prev_patterns = set(title_patterns[max(0, i-10):i])
-            next_patterns = set(title_patterns[i:min(len(title_patterns), i+10)])
+        # 策略3：检测章节标题模式的变化 - 更严格的条件
+        if len(chapter_numbers) > 20:  # 只对较长的章节列表应用
+            title_patterns = []
+            for _, _, chapter in chapter_numbers:
+                pattern = self._get_title_pattern(chapter.title)
+                title_patterns.append(pattern)
             
-            # 如果模式发生显著变化，可能是从最新章节转到正文目录
-            if len(prev_patterns & next_patterns) == 0 and len(next_patterns) == 1:
-                logger.info(f"在索引 {i} 检测到标题模式变化")
-                return i
+            # 寻找模式变化点
+            for i in range(5, min(len(title_patterns), 15)):  # 缩小搜索范围
+                # 检查前面5个和后面10个的模式
+                prev_patterns = set(title_patterns[max(0, i-5):i])
+                next_patterns = set(title_patterns[i:min(len(title_patterns), i+10)])
+                
+                # 如果模式发生显著变化，可能是从最新章节转到正文目录
+                if (len(prev_patterns & next_patterns) == 0 and 
+                    len(next_patterns) == 1 and 
+                    "第X章" in next_patterns):  # 确保后面是标准章节格式
+                    logger.info(f"在索引 {i} 检测到标题模式变化")
+                    return i
         
-        # 策略4：如果前面的章节标题包含"最新"、"更新"等关键词
+        # 策略4：如果前面的章节标题包含"最新"、"更新"等关键词 - 更严格的条件
         latest_keywords = ['最新', '更新', '新增', 'latest', 'new', 'update']
-        for i, (_, _, chapter) in enumerate(chapter_numbers[:20]):  # 只检查前20个
+        latest_section_end = 0
+        
+        for i, (_, _, chapter) in enumerate(chapter_numbers[:10]):  # 只检查前10个
             title_lower = chapter.title.lower()
             if any(keyword in title_lower for keyword in latest_keywords):
-                # 寻找这个区域的结束位置
-                for j in range(i+1, min(len(chapter_numbers), i+15)):
-                    next_title = chapter_numbers[j][2].title.lower()
-                    if not any(keyword in next_title for keyword in latest_keywords):
-                        logger.info(f"在索引 {j} 检测到最新章节区域结束")
-                        return j
+                latest_section_end = i + 1
+            else:
+                break  # 遇到非"最新"章节就停止
+        
+        if latest_section_end > 0 and latest_section_end <= 8:  # 最新章节部分不应该太长
+            logger.info(f"在索引 {latest_section_end} 检测到最新章节区域结束")
+            return latest_section_end
         
         return 0  # 未检测到最新章节，从头开始
     

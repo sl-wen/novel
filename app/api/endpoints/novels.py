@@ -7,7 +7,9 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.core.config import settings
+from app.core.source import Source
 from app.models.search import SearchResponse
+from app.parsers.toc_parser import TocParser
 from app.services.novel_service import NovelService
 from app.utils.cache_manager import cache_manager
 from app.utils.enhanced_http_client import http_client
@@ -728,4 +730,86 @@ async def health_check():
             "code": 500,
             "message": f"健康检查失败: {str(e)}",
             "data": {"status": "error", "health_score": 0, "timestamp": time.time()},
+        }
+
+
+@router.get("/debug/toc")
+async def debug_toc_parsing(
+    url: str, 
+    source_id: int,
+    skip_filter: bool = False
+):
+    """调试目录解析
+    
+    Args:
+        url: 小说详情页URL
+        source_id: 书源ID
+        skip_filter: 是否跳过章节过滤
+    
+    Returns:
+        详细的解析调试信息
+    """
+    try:
+        # 创建书源
+        source = Source(source_id)
+        parser = TocParser(source)
+        
+        # 获取目录URL
+        toc_url = parser._get_toc_url(url)
+        
+        # 临时禁用过滤（如果需要）
+        if skip_filter:
+            original_filter = parser._filter_latest_chapters
+            parser._filter_latest_chapters = lambda chapters: chapters
+        
+        # 解析目录
+        chapters = await parser.parse(url)
+        
+        # 恢复过滤
+        if skip_filter:
+            parser._filter_latest_chapters = original_filter
+        
+        debug_info = {
+            "source_info": {
+                "id": source.id,
+                "name": source.name,
+                "url": source.rule.get("url", ""),
+            },
+            "url_info": {
+                "original_url": url,
+                "toc_url": toc_url,
+                "url_transform": source.rule.get("toc", {}).get("url_transform", {}),
+            },
+            "parsing_config": {
+                "list_selector": source.rule.get("toc", {}).get("list", ""),
+                "title_selector": source.rule.get("toc", {}).get("title", ""),
+                "url_selector": source.rule.get("toc", {}).get("url", ""),
+                "has_pages": source.rule.get("toc", {}).get("has_pages", False),
+            },
+            "results": {
+                "total_chapters": len(chapters),
+                "skip_filter": skip_filter,
+                "chapters": [
+                    {
+                        "order": chapter.order,
+                        "title": chapter.title,
+                        "url": chapter.url,
+                    }
+                    for chapter in chapters
+                ],
+            }
+        }
+        
+        return {
+            "code": 200,
+            "message": "调试成功",
+            "data": debug_info
+        }
+        
+    except Exception as e:
+        logger.error(f"调试目录解析失败: {str(e)}")
+        return {
+            "code": 500,
+            "message": f"调试失败: {str(e)}",
+            "data": None
         }
