@@ -7,7 +7,9 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.core.config import settings
+from app.core.source import Source
 from app.models.search import SearchResponse
+from app.parsers.toc_parser import TocParser
 from app.services.novel_service import NovelService
 from app.utils.cache_manager import cache_manager
 from app.utils.enhanced_http_client import http_client
@@ -728,4 +730,198 @@ async def health_check():
             "code": 500,
             "message": f"健康检查失败: {str(e)}",
             "data": {"status": "error", "health_score": 0, "timestamp": time.time()},
+        }
+
+
+@router.get("/debug/toc")
+async def debug_toc_parsing(
+    url: str, 
+    source_id: int,
+    skip_filter: bool = False
+):
+    """调试目录解析
+    
+    Args:
+        url: 小说详情页URL
+        source_id: 书源ID
+        skip_filter: 是否跳过章节过滤（已禁用过滤功能，此参数仅用于兼容）
+    
+    Returns:
+        详细的解析调试信息
+    """
+    start_time = time.time()
+    
+    try:
+        # 创建书源
+        source = Source(source_id)
+        parser = TocParser(source)
+        
+        # 获取目录URL
+        toc_url = parser._get_toc_url(url)
+        
+        # 解析目录
+        chapters = await parser.parse(url)
+        
+        parsing_time = time.time() - start_time
+        
+        # 分析章节信息
+        chapter_analysis = {
+            "total_chapters": len(chapters),
+            "chapters_with_numbers": 0,
+            "chapters_without_numbers": 0,
+            "duplicate_analysis": {},
+            "number_distribution": {}
+        }
+        
+        # 分析章节编号分布
+        for chapter in chapters:
+            number = parser._extract_chapter_number(chapter.title)
+            if number > 0:
+                chapter_analysis["chapters_with_numbers"] += 1
+                if number in chapter_analysis["number_distribution"]:
+                    chapter_analysis["number_distribution"][number] += 1
+                else:
+                    chapter_analysis["number_distribution"][number] = 1
+            else:
+                chapter_analysis["chapters_without_numbers"] += 1
+        
+        # 检查重复编号
+        duplicates = {k: v for k, v in chapter_analysis["number_distribution"].items() if v > 1}
+        chapter_analysis["duplicate_analysis"] = {
+            "duplicate_numbers": duplicates,
+            "total_duplicates": sum(v - 1 for v in duplicates.values())
+        }
+        
+        # 性能分析
+        performance_analysis = {
+            "total_parsing_time": round(parsing_time, 2),
+            "average_time_per_chapter": round(parsing_time / len(chapters), 4) if chapters else 0,
+            "parsing_speed": round(len(chapters) / parsing_time, 2) if parsing_time > 0 else 0,  # 章节/秒
+        }
+        
+        debug_info = {
+            "source_info": {
+                "id": source.id,
+                "name": source.name,
+                "url": source.rule.get("url", ""),
+            },
+            "url_info": {
+                "original_url": url,
+                "toc_url": toc_url,
+                "url_transform": source.rule.get("toc", {}).get("url_transform", {}),
+            },
+            "parsing_config": {
+                "list_selector": source.rule.get("toc", {}).get("list", ""),
+                "title_selector": source.rule.get("toc", {}).get("title", ""),
+                "url_selector": source.rule.get("toc", {}).get("url", ""),
+                "has_pages": source.rule.get("toc", {}).get("has_pages", False),
+            },
+            "processing_info": {
+                "latest_chapter_filter": "已禁用",
+                "deduplication": "已启用智能去重",
+                "sorting": "已启用智能排序"
+            },
+            "chapter_analysis": chapter_analysis,
+            "performance_analysis": performance_analysis,
+            "results": {
+                "total_chapters": len(chapters),
+                "chapters": [
+                    {
+                        "order": chapter.order,
+                        "title": chapter.title,
+                        "url": chapter.url,
+                        "chapter_number": parser._extract_chapter_number(chapter.title)
+                    }
+                    for chapter in chapters
+                ],
+            }
+        }
+        
+        return {
+            "code": 200,
+            "message": "调试成功",
+            "data": debug_info
+        }
+        
+    except Exception as e:
+        parsing_time = time.time() - start_time
+        logger.error(f"调试目录解析失败: {str(e)}")
+        return {
+            "code": 500,
+            "message": f"调试失败: {str(e)}",
+            "data": {
+                "error_time": round(parsing_time, 2),
+                "error_details": str(e)
+            }
+        }
+
+@router.get("/performance/stats")
+async def get_performance_stats():
+    """获取下载性能统计"""
+    try:
+        from app.utils.download_performance_monitor import performance_monitor
+        from app.utils.rate_limiter import rate_limiter
+        from app.utils.enhanced_http_client import http_client
+        
+        # 获取性能统计
+        perf_stats = performance_monitor.get_detailed_stats()
+        
+        # 获取限流统计
+        rate_stats = rate_limiter.get_stats()
+        
+        # 获取HTTP客户端统计
+        http_stats = http_client.get_stats()
+        
+        # 获取优化建议
+        suggestions = performance_monitor.get_optimization_suggestions()
+        
+        return {
+            "code": 200,
+            "message": "获取性能统计成功",
+            "data": {
+                "download_performance": perf_stats,
+                "rate_limiting": rate_stats,
+                "http_client": http_stats,
+                "optimization_suggestions": suggestions,
+                "timestamp": time.time()
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取性能统计失败: {str(e)}")
+        return {
+            "code": 500,
+            "message": f"获取性能统计失败: {str(e)}",
+            "data": None
+        }
+
+@router.get("/performance/metrics")
+async def get_performance_metrics():
+    """获取实时性能指标"""
+    try:
+        from app.utils.download_performance_monitor import performance_monitor
+        
+        metrics = performance_monitor.get_metrics()
+        
+        return {
+            "code": 200,
+            "message": "获取性能指标成功",
+            "data": {
+                "total_chapters": metrics.total_chapters,
+                "downloaded_chapters": metrics.downloaded_chapters,
+                "failed_chapters": metrics.failed_chapters,
+                "success_rate": f"{metrics.success_rate:.1%}",
+                "download_speed": f"{metrics.download_speed:.2f} 章/秒",
+                "avg_download_time": f"{metrics.avg_download_time:.2f}s",
+                "current_concurrent": metrics.current_concurrent,
+                "peak_concurrent": metrics.peak_concurrent,
+                "estimated_remaining_time": f"{metrics.estimated_remaining_time:.0f}s",
+                "total_download_time": f"{metrics.total_download_time:.2f}s"
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取性能指标失败: {str(e)}")
+        return {
+            "code": 500,
+            "message": f"获取性能指标失败: {str(e)}",
+            "data": None
         }

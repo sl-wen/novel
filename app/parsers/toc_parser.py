@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 from typing import List, Optional
 from urllib.parse import urljoin, urlparse
 
@@ -13,6 +14,48 @@ from app.models.chapter import ChapterInfo
 from app.utils.http_client import HttpClient
 
 logger = logging.getLogger(__name__)
+
+
+class TocParsingStats:
+    """目录解析统计信息"""
+    
+    def __init__(self):
+        self.start_time = time.time()
+        self.phases = {}
+        self.current_phase = None
+        self.current_phase_start = None
+    
+    def start_phase(self, phase_name: str):
+        """开始一个解析阶段"""
+        if self.current_phase:
+            self.end_phase()
+        
+        self.current_phase = phase_name
+        self.current_phase_start = time.time()
+        logger.debug(f"开始阶段: {phase_name}")
+    
+    def end_phase(self):
+        """结束当前解析阶段"""
+        if self.current_phase and self.current_phase_start:
+            duration = time.time() - self.current_phase_start
+            self.phases[self.current_phase] = duration
+            logger.debug(f"结束阶段: {self.current_phase} (耗时: {duration:.2f}s)")
+            self.current_phase = None
+            self.current_phase_start = None
+    
+    def get_total_time(self) -> float:
+        """获取总耗时"""
+        return time.time() - self.start_time
+    
+    def get_stats_summary(self) -> dict:
+        """获取统计摘要"""
+        if self.current_phase:
+            self.end_phase()
+        
+        return {
+            "total_time": round(self.get_total_time(), 2),
+            "phases": {k: round(v, 2) for k, v in self.phases.items()}
+        }
 
 
 class TocParser:
@@ -48,21 +91,33 @@ class TocParser:
         Returns:
             章节列表
         """
+        # 初始化性能统计
+        stats = TocParsingStats()
+        stats.start_phase("初始化")
+        
         logger.info(f"开始解析目录: {url}")
         
         # 获取目录URL
         toc_url = self._get_toc_url(url)
         logger.info(f"构建的目录URL: {toc_url}")
-
+        
+        stats.start_phase("获取页面内容")
+        
         # 多策略获取目录
         chapters = await self._parse_toc_with_strategies(toc_url)
         
         if not chapters:
+            stats.start_phase("备用解析")
             logger.warning(f"所有策略都未能获取到目录，尝试备用方法")
             chapters = await self._fallback_toc_parsing(url, toc_url)
-            logger.error(f"从书源 {self.source.rule.get('name', self.source.id)} 获取目录失败: {toc_url}")
-            return []
+            if not chapters:
+                logger.error(f"从书源 {self.source.rule.get('name', self.source.id)} 获取目录失败: {toc_url}")
+                stats.end_phase()
+                logger.info(f"解析统计: {stats.get_stats_summary()}")
+                return []
 
+        stats.start_phase("处理分页")
+        
         # 处理分页
         if self.toc_rule.get("has_pages", False) or self.toc_rule.get("pagination", False):
             logger.info("处理目录分页...")
@@ -74,12 +129,18 @@ class TocParser:
                 current_order += 1
             chapters.extend(additional_chapters)
 
+        stats.start_phase("数据清洗")
+        
         # 数据清洗和验证
         chapters = self._clean_and_validate_chapters(chapters)
         
-        # 智能排序章节
+        stats.start_phase("智能排序")
+        
+        # 智能排序章节（在去重之后进行）
         chapters = self._smart_sort_chapters(chapters)
 
+        stats.start_phase("结果处理")
+        
         # 截取指定范围的章节
         start_idx = max(0, start - 1)
         if end == float("inf"):
@@ -88,11 +149,17 @@ class TocParser:
             end_idx = min(len(chapters), int(end))
 
         result_chapters = chapters[start_idx:end_idx]
+        
+        # 结束统计
+        stats.end_phase()
+        stats_summary = stats.get_stats_summary()
 
         logger.info(
             f"书源 {self.source.rule.get('name', self.source.id)} "
             f"获取到 {len(result_chapters)} 个章节（总共 {len(chapters)} 个）"
         )
+        logger.info(f"解析性能统计: 总耗时 {stats_summary['total_time']}s, 各阶段: {stats_summary['phases']}")
+        
         return result_chapters
 
     def _get_toc_url(self, url: str) -> str:
@@ -160,9 +227,41 @@ class TocParser:
         Returns:
             HTML页面内容，失败返回None
         """
-        # 使用统一的HTTP客户端
-        referer = self.source.rule.get("url", "")
-        return await HttpClient.fetch_html(url, self.timeout, referer)
+        max_retries = 3
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                result = await HttpClient.fetch_html(url, self.timeout, self.source.rule.get("url", ""))
+                if result:
+                    if attempt > 0:
+                        logger.info(f"第 {attempt + 1} 次尝试成功获取页面: {url}")
+                    return result
+                
+                if attempt == 0:
+                    logger.warning(f"第一次请求失败，准备重试: {url}")
+                
+            except asyncio.TimeoutError:
+                logger.warning(f"请求超时（第 {attempt + 1} 次）: {url}")
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # 指数退避
+                    logger.info(f"等待 {delay:.1f} 秒后重试...")
+                    await asyncio.sleep(delay)
+                
+            except aiohttp.ClientError as e:
+                logger.warning(f"网络错误（第 {attempt + 1} 次）: {url} - {str(e)}")
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    await asyncio.sleep(delay)
+                
+            except Exception as e:
+                logger.error(f"未知错误（第 {attempt + 1} 次）: {url} - {str(e)}")
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    await asyncio.sleep(delay)
+        
+        logger.error(f"获取页面最终失败（共 {max_retries} 次尝试）: {url}")
+        return None
 
     async def _fetch_html_single(self, url: str) -> Optional[str]:
         """获取单个HTML页面（用于分页请求）
@@ -534,32 +633,179 @@ class TocParser:
         if not chapters:
             return []
         
-        # 去重（基于URL）
-        seen_urls = set()
-        unique_chapters = []
+        logger.info(f"开始清洗章节列表，原始章节数: {len(chapters)}")
         
-        for chapter in chapters:
-            if chapter.url not in seen_urls:
-                seen_urls.add(chapter.url)
-                unique_chapters.append(chapter)
-        
-        # 过滤掉标题过短或明显无效的章节
+        # 第一步：基本验证，过滤掉明显无效的章节
         valid_chapters = []
-        for chapter in unique_chapters:
+        for chapter in chapters:
             if (len(chapter.title) >= 2 and 
                 not re.match(r'^[\s\-_\.]*$', chapter.title) and
                 self._is_valid_chapter_url(chapter.url)):
                 valid_chapters.append(chapter)
         
-        # 过滤最新章节，只保留正文目录
-        filtered_chapters = self._filter_latest_chapters(valid_chapters)
+        logger.info(f"基本验证后剩余章节数: {len(valid_chapters)}")
         
-        # 重新排序
-        for i, chapter in enumerate(filtered_chapters):
+        # 第二步：智能去重 - 处理重复章节
+        deduplicated_chapters = self._smart_deduplication(valid_chapters)
+        
+        logger.info(f"去重后剩余章节数: {len(deduplicated_chapters)}")
+        
+        # 第三步：重新排序
+        for i, chapter in enumerate(deduplicated_chapters):
             chapter.order = i + 1
         
-        logger.info(f"章节清洗完成：原始 {len(chapters)} 个，有效 {len(valid_chapters)} 个，过滤后 {len(filtered_chapters)} 个")
-        return filtered_chapters
+        logger.info(f"章节清洗完成：原始 {len(chapters)} 个，最终 {len(deduplicated_chapters)} 个")
+        return deduplicated_chapters
+
+    def _smart_deduplication(self, chapters: List[ChapterInfo]) -> List[ChapterInfo]:
+        """智能去重处理
+        
+        处理策略：
+        1. 基于URL的严格去重
+        2. 基于标题的智能去重（考虑章节编号）
+        3. 保留质量更好的章节（URL更完整、标题更规范）
+        """
+        if not chapters:
+            return []
+        
+        # 基于URL去重
+        url_seen = {}
+        url_deduplicated = []
+        
+        for chapter in chapters:
+            if chapter.url not in url_seen:
+                url_seen[chapter.url] = chapter
+                url_deduplicated.append(chapter)
+            else:
+                # 如果URL重复，保留标题更好的那个
+                existing = url_seen[chapter.url]
+                if self._is_better_chapter(chapter, existing):
+                    # 替换为更好的章节
+                    url_seen[chapter.url] = chapter
+                    # 在列表中也替换
+                    for i, c in enumerate(url_deduplicated):
+                        if c.url == chapter.url:
+                            url_deduplicated[i] = chapter
+                            break
+        
+        logger.info(f"URL去重完成: {len(chapters)} -> {len(url_deduplicated)}")
+        
+        # 基于标题的智能去重
+        title_deduplicated = self._deduplicate_by_title(url_deduplicated)
+        
+        return title_deduplicated
+    
+    def _is_better_chapter(self, chapter1: ChapterInfo, chapter2: ChapterInfo) -> bool:
+        """判断章节1是否比章节2更好
+        
+        判断标准：
+        1. 标题更规范（包含章节编号）
+        2. URL更完整
+        3. 标题更长（更详细）
+        """
+        # 检查标题是否包含章节编号
+        number1 = self._extract_chapter_number(chapter1.title)
+        number2 = self._extract_chapter_number(chapter2.title)
+        
+        if number1 > 0 and number2 == 0:
+            return True
+        if number2 > 0 and number1 == 0:
+            return False
+        
+        # 检查URL完整性
+        if len(chapter1.url) > len(chapter2.url):
+            return True
+        if len(chapter2.url) > len(chapter1.url):
+            return False
+        
+        # 检查标题长度
+        return len(chapter1.title) > len(chapter2.title)
+    
+    def _deduplicate_by_title(self, chapters: List[ChapterInfo]) -> List[ChapterInfo]:
+        """基于标题的智能去重"""
+        if not chapters:
+            return []
+        
+        # 提取所有章节的编号和标题
+        chapter_info = []
+        for chapter in chapters:
+            number = self._extract_chapter_number(chapter.title)
+            normalized_title = self._normalize_title(chapter.title)
+            chapter_info.append((number, normalized_title, chapter))
+        
+        # 基于章节编号去重
+        number_seen = {}
+        result = []
+        
+        for number, normalized_title, chapter in chapter_info:
+            if number > 0:  # 有明确章节编号的
+                if number not in number_seen:
+                    number_seen[number] = chapter
+                    result.append(chapter)
+                else:
+                    # 如果章节编号重复，保留更好的那个
+                    existing = number_seen[number]
+                    if self._is_better_chapter(chapter, existing):
+                        number_seen[number] = chapter
+                        # 在结果中替换
+                        for i, c in enumerate(result):
+                            if self._extract_chapter_number(c.title) == number:
+                                result[i] = chapter
+                                break
+            else:
+                # 没有明确章节编号的，基于标题去重
+                title_exists = False
+                for existing_chapter in result:
+                    existing_normalized = self._normalize_title(existing_chapter.title)
+                    if self._titles_are_similar(normalized_title, existing_normalized):
+                        title_exists = True
+                        break
+                
+                if not title_exists:
+                    result.append(chapter)
+        
+        logger.info(f"标题去重完成: {len(chapters)} -> {len(result)}")
+        return result
+    
+    def _normalize_title(self, title: str) -> str:
+        """标准化章节标题，用于比较"""
+        if not title:
+            return ""
+        
+        # 移除常见的前缀后缀
+        title = re.sub(r'^第\s*\d+\s*章\s*', '', title)  # 移除"第X章"
+        title = re.sub(r'^\d+[\.\-\s]+', '', title)      # 移除"123. "或"123-"
+        title = re.sub(r'\s*\(.*?\)\s*$', '', title)     # 移除结尾的括号内容
+        title = re.sub(r'\s*【.*?】\s*$', '', title)      # 移除结尾的中文括号内容
+        
+        # 标准化空白字符
+        title = re.sub(r'\s+', ' ', title.strip())
+        
+        return title.lower()
+    
+    def _titles_are_similar(self, title1: str, title2: str, threshold: float = 0.8) -> bool:
+        """判断两个标题是否相似"""
+        if not title1 or not title2:
+            return False
+        
+        if title1 == title2:
+            return True
+        
+        # 简单的相似度计算
+        shorter = min(len(title1), len(title2))
+        longer = max(len(title1), len(title2))
+        
+        if shorter == 0:
+            return False
+        
+        # 计算公共子串长度
+        common = 0
+        for i in range(shorter):
+            if i < len(title1) and i < len(title2) and title1[i] == title2[i]:
+                common += 1
+        
+        similarity = common / longer
+        return similarity >= threshold
 
     async def _handle_pagination(self, toc_url: str) -> List[ChapterInfo]:
         """处理目录分页"""
@@ -805,39 +1051,11 @@ class TocParser:
     def _filter_latest_chapters(self, chapters: List[ChapterInfo]) -> List[ChapterInfo]:
         """过滤最新章节，只保留正文目录
         
-        很多书源的目录结构是：
-        1. 最新章节（最近更新的几章）
-        2. 正文目录（从第一章开始的完整目录）
-        
-        我们需要识别并过滤掉最新章节部分，只保留正文目录
+        修改：根据用户要求，完全禁用最新章节过滤功能
+        如果目录页有重复章节，将通过重新下载和排序来处理
         """
-        if len(chapters) <= 10:  # 如果章节数太少，不进行过滤
-            return chapters
-        
-        logger.info(f"开始过滤最新章节，原始章节数：{len(chapters)}")
-        
-        # 分析章节标题，寻找章节编号模式
-        chapter_numbers = []
-        for i, chapter in enumerate(chapters):
-            number = self._extract_chapter_number(chapter.title)
-            chapter_numbers.append((i, number, chapter))
-        
-        # 寻找正文目录的开始位置
-        main_content_start = self._find_main_content_start(chapter_numbers)
-        
-        if main_content_start > 0:
-            logger.info(f"检测到最新章节部分，从索引 {main_content_start} 开始是正文目录")
-            filtered_chapters = [chapter for _, _, chapter in chapter_numbers[main_content_start:]]
-            
-            # 验证过滤结果的合理性
-            if len(filtered_chapters) >= len(chapters) * 0.5:  # 保留的章节应该占一半以上
-                return filtered_chapters
-            else:
-                logger.warning("过滤结果异常，保留原始章节列表")
-                return chapters
-        else:
-            logger.info("未检测到最新章节部分，保留原始章节列表")
-            return chapters
+        logger.info(f"跳过最新章节过滤，保留所有 {len(chapters)} 个章节")
+        return chapters
     
     def _extract_chapter_number(self, title: str) -> int:
         """从章节标题中提取章节编号"""
@@ -905,63 +1123,79 @@ class TocParser:
             
         Returns:
             正文目录开始的索引位置，0表示从头开始
+        
+        修改：使检测逻辑更加保守，减少误判
         """
-        if len(chapter_numbers) <= 10:
+        if len(chapter_numbers) <= 15:  # 提高阈值
             return 0
         
-        # 策略1：寻找章节号为1的位置
+        # 策略1：寻找章节号为1的位置（更严格的条件）
         for i, (idx, number, chapter) in enumerate(chapter_numbers):
             if number == 1:
                 # 检查这个位置之前是否有更大的章节号（表明前面是最新章节）
-                if i > 0:
+                if i > 5:  # 提高位置要求，至少要在第6个位置之后
                     prev_numbers = [num for _, num, _ in chapter_numbers[:i] if num > 0]
-                    if prev_numbers and max(prev_numbers) > 10:  # 前面有较大的章节号
-                        logger.info(f"在索引 {i} 找到第1章，前面有最新章节")
-                        return i
+                    if prev_numbers and max(prev_numbers) > 20:  # 提高章节号差异要求
+                        # 还要检查前面的章节是否真的像"最新章节"
+                        prev_titles = [chapter.title for _, _, chapter in chapter_numbers[:i]]
+                        latest_keywords = ['最新', '更新', '新增', 'latest', 'new', 'update']
+                        has_latest_keywords = any(any(keyword in title.lower() for keyword in latest_keywords) 
+                                                for title in prev_titles)
+                        
+                        if has_latest_keywords or len(prev_numbers) <= 8:  # 最新章节部分不应该太长
+                            logger.info(f"在索引 {i} 找到第1章，前面有最新章节（最大章节号：{max(prev_numbers)}）")
+                            return i
                 
                 # 如果第1章在前面几个位置，可能整个都是正文
-                if i <= 5:
+                if i <= 3:  # 降低阈值，更保守
                     return 0
         
-        # 策略2：寻找章节号重置点（从大数字突然跳到小数字）
+        # 策略2：寻找章节号重置点（从大数字突然跳到小数字）- 更严格的条件
         for i in range(1, len(chapter_numbers)):
             curr_number = chapter_numbers[i][1]
             prev_number = chapter_numbers[i-1][1]
             
             if (curr_number > 0 and prev_number > 0 and 
                 curr_number < prev_number and 
-                prev_number - curr_number > 50):  # 章节号大幅下降
+                prev_number - curr_number > 100 and  # 提高章节号差异要求
+                i <= 10):  # 重置点应该在前面部分
                 logger.info(f"在索引 {i} 检测到章节号重置：{prev_number} -> {curr_number}")
                 return i
         
-        # 策略3：检测章节标题模式的变化
-        title_patterns = []
-        for _, _, chapter in chapter_numbers:
-            pattern = self._get_title_pattern(chapter.title)
-            title_patterns.append(pattern)
-        
-        # 寻找模式变化点
-        for i in range(10, min(len(title_patterns), 50)):
-            # 检查前面10个和后面10个的模式
-            prev_patterns = set(title_patterns[max(0, i-10):i])
-            next_patterns = set(title_patterns[i:min(len(title_patterns), i+10)])
+        # 策略3：检测章节标题模式的变化 - 更严格的条件
+        if len(chapter_numbers) > 20:  # 只对较长的章节列表应用
+            title_patterns = []
+            for _, _, chapter in chapter_numbers:
+                pattern = self._get_title_pattern(chapter.title)
+                title_patterns.append(pattern)
             
-            # 如果模式发生显著变化，可能是从最新章节转到正文目录
-            if len(prev_patterns & next_patterns) == 0 and len(next_patterns) == 1:
-                logger.info(f"在索引 {i} 检测到标题模式变化")
-                return i
+            # 寻找模式变化点
+            for i in range(5, min(len(title_patterns), 15)):  # 缩小搜索范围
+                # 检查前面5个和后面10个的模式
+                prev_patterns = set(title_patterns[max(0, i-5):i])
+                next_patterns = set(title_patterns[i:min(len(title_patterns), i+10)])
+                
+                # 如果模式发生显著变化，可能是从最新章节转到正文目录
+                if (len(prev_patterns & next_patterns) == 0 and 
+                    len(next_patterns) == 1 and 
+                    "第X章" in next_patterns):  # 确保后面是标准章节格式
+                    logger.info(f"在索引 {i} 检测到标题模式变化")
+                    return i
         
-        # 策略4：如果前面的章节标题包含"最新"、"更新"等关键词
+        # 策略4：如果前面的章节标题包含"最新"、"更新"等关键词 - 更严格的条件
         latest_keywords = ['最新', '更新', '新增', 'latest', 'new', 'update']
-        for i, (_, _, chapter) in enumerate(chapter_numbers[:20]):  # 只检查前20个
+        latest_section_end = 0
+        
+        for i, (_, _, chapter) in enumerate(chapter_numbers[:10]):  # 只检查前10个
             title_lower = chapter.title.lower()
             if any(keyword in title_lower for keyword in latest_keywords):
-                # 寻找这个区域的结束位置
-                for j in range(i+1, min(len(chapter_numbers), i+15)):
-                    next_title = chapter_numbers[j][2].title.lower()
-                    if not any(keyword in next_title for keyword in latest_keywords):
-                        logger.info(f"在索引 {j} 检测到最新章节区域结束")
-                        return j
+                latest_section_end = i + 1
+            else:
+                break  # 遇到非"最新"章节就停止
+        
+        if latest_section_end > 0 and latest_section_end <= 8:  # 最新章节部分不应该太长
+            logger.info(f"在索引 {latest_section_end} 检测到最新章节区域结束")
+            return latest_section_end
         
         return 0  # 未检测到最新章节，从头开始
     
@@ -985,28 +1219,52 @@ class TocParser:
     def _smart_sort_chapters(self, chapters: List[ChapterInfo]) -> List[ChapterInfo]:
         """智能排序章节
         
-        优先使用章节标题中的编号进行排序，如果没有编号则使用原始顺序
+        修改：在不过滤章节的情况下，更好地排序所有章节
+        优先使用章节标题中的编号进行排序，如果没有编号则保持原始顺序
         """
         if not chapters:
             return chapters
         
         logger.info(f"开始智能排序 {len(chapters)} 个章节")
         
-        # 为每个章节提取排序键
-        chapters_with_sort_key = []
+        # 分析章节编号分布
+        chapters_with_numbers = []
+        chapters_without_numbers = []
+        
         for chapter in chapters:
             chapter_number = self._extract_chapter_number(chapter.title)
-            sort_key = (chapter_number, chapter.order) if chapter_number > 0 else (float('inf'), chapter.order)
-            chapters_with_sort_key.append((sort_key, chapter))
+            if chapter_number > 0:
+                chapters_with_numbers.append((chapter_number, chapter.order, chapter))
+            else:
+                chapters_without_numbers.append(chapter)
         
-        # 按排序键排序
-        chapters_with_sort_key.sort(key=lambda x: x[0])
+        logger.info(f"有编号的章节: {len(chapters_with_numbers)}, 无编号的章节: {len(chapters_without_numbers)}")
         
-        # 提取排序后的章节并重新分配order
+        # 对有编号的章节进行排序
+        chapters_with_numbers.sort(key=lambda x: (x[0], x[1]))  # 先按章节号，再按原始顺序
+        
+        # 重新组合章节列表
         sorted_chapters = []
-        for i, (sort_key, chapter) in enumerate(chapters_with_sort_key):
+        
+        # 如果大部分章节都有编号，按编号排序
+        if len(chapters_with_numbers) >= len(chapters) * 0.7:
+            # 添加排序后的有编号章节
+            for chapter_number, original_order, chapter in chapters_with_numbers:
+                sorted_chapters.append(chapter)
+            
+            # 将无编号的章节插入到合适的位置或添加到末尾
+            if chapters_without_numbers:
+                # 简单策略：将无编号章节添加到末尾
+                sorted_chapters.extend(chapters_without_numbers)
+                logger.info("无编号章节已添加到末尾")
+        else:
+            # 如果大部分章节都没有编号，保持原始顺序
+            logger.info("大部分章节无编号，保持原始顺序")
+            sorted_chapters = chapters
+        
+        # 重新分配order
+        for i, chapter in enumerate(sorted_chapters):
             chapter.order = i + 1
-            sorted_chapters.append(chapter)
         
         # 验证排序结果
         self._validate_chapter_order(sorted_chapters)
