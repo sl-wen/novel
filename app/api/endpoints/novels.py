@@ -854,3 +854,74 @@ async def debug_toc_parsing(
                 "error_details": str(e)
             }
         }
+
+@router.get("/performance/stats")
+async def get_performance_stats():
+    """获取下载性能统计"""
+    try:
+        from app.utils.download_performance_monitor import performance_monitor
+        from app.utils.rate_limiter import rate_limiter
+        from app.utils.enhanced_http_client import http_client
+        
+        # 获取性能统计
+        perf_stats = performance_monitor.get_detailed_stats()
+        
+        # 获取限流统计
+        rate_stats = rate_limiter.get_stats()
+        
+        # 获取HTTP客户端统计
+        http_stats = http_client.get_stats()
+        
+        # 获取优化建议
+        suggestions = performance_monitor.get_optimization_suggestions()
+        
+        return {
+            "code": 200,
+            "message": "获取性能统计成功",
+            "data": {
+                "download_performance": perf_stats,
+                "rate_limiting": rate_stats,
+                "http_client": http_stats,
+                "optimization_suggestions": suggestions,
+                "timestamp": time.time()
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取性能统计失败: {str(e)}")
+        return {
+            "code": 500,
+            "message": f"获取性能统计失败: {str(e)}",
+            "data": None
+        }
+
+@router.get("/performance/metrics")
+async def get_performance_metrics():
+    """获取实时性能指标"""
+    try:
+        from app.utils.download_performance_monitor import performance_monitor
+        
+        metrics = performance_monitor.get_metrics()
+        
+        return {
+            "code": 200,
+            "message": "获取性能指标成功",
+            "data": {
+                "total_chapters": metrics.total_chapters,
+                "downloaded_chapters": metrics.downloaded_chapters,
+                "failed_chapters": metrics.failed_chapters,
+                "success_rate": f"{metrics.success_rate:.1%}",
+                "download_speed": f"{metrics.download_speed:.2f} 章/秒",
+                "avg_download_time": f"{metrics.avg_download_time:.2f}s",
+                "current_concurrent": metrics.current_concurrent,
+                "peak_concurrent": metrics.peak_concurrent,
+                "estimated_remaining_time": f"{metrics.estimated_remaining_time:.0f}s",
+                "total_download_time": f"{metrics.total_download_time:.2f}s"
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取性能指标失败: {str(e)}")
+        return {
+            "code": 500,
+            "message": f"获取性能指标失败: {str(e)}",
+            "data": None
+        }

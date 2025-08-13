@@ -14,6 +14,7 @@ import aiohttp
 from aiohttp import ClientSession, ClientTimeout, TCPConnector
 
 from app.core.config import settings
+from app.utils.rate_limiter import rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ class EnhancedHttpClient:
         return f"{parsed.scheme}://{parsed.netloc}"
 
     async def _get_or_create_session(self, url: str) -> ClientSession:
-        """获取或创建会话"""
+        """获取或创建会话（性能优化版）"""
         session_key = self._get_session_key(url)
 
         async with self.session_lock:
@@ -140,25 +141,25 @@ class EnhancedHttpClient:
                     if session_key in self.session_last_used:
                         del self.session_last_used[session_key]
 
-            # 创建新会话（提高并发上限，参照下载并发配置）
-            overall_limit = max(
-                getattr(settings, "DOWNLOAD_CONCURRENT_LIMIT", 10) * 4, 20
-            )
-            per_host_limit = max(getattr(settings, "DOWNLOAD_CONCURRENT_LIMIT", 10), 10)
+            # 创建新会话（大幅提高并发上限）
+            overall_limit = 100  # 总连接数上限
+            per_host_limit = 50   # 单主机连接数上限
 
             connector = TCPConnector(
                 limit=overall_limit,
                 limit_per_host=per_host_limit,
-                ttl_dns_cache=300,
+                ttl_dns_cache=600,  # 增加DNS缓存时间
                 use_dns_cache=True,
                 ssl=False,  # 跳过SSL验证以提高速度
                 enable_cleanup_closed=True,
+                keepalive_timeout=60,  # 保持连接时间
+                tcp_keepalive=True,    # 启用TCP保活
             )
 
             timeout = ClientTimeout(
-                total=self.read_timeout,
-                connect=self.connection_timeout,
-                sock_read=self.read_timeout,
+                total=60,      # 总超时时间
+                connect=10,    # 连接超时
+                sock_read=30,  # 读取超时
             )
 
             session = ClientSession(
@@ -170,7 +171,7 @@ class EnhancedHttpClient:
             self.session_cache[session_key] = session
             self.session_last_used[session_key] = time.time()
 
-            logger.debug(f"创建新会话: {session_key}")
+            logger.debug(f"创建高性能会话: {session_key}")
             return session
 
     def _get_optimized_headers(self) -> Dict[str, str]:
@@ -191,7 +192,7 @@ class EnhancedHttpClient:
     async def fetch_html(
         self, url: str, referer: str = None, timeout: int = None, retries: int = None
     ) -> Optional[str]:
-        """获取HTML页面内容（优化版）
+        """获取HTML页面内容（高性能优化版）
 
         Args:
             url: 页面URL
@@ -208,6 +209,10 @@ class EnhancedHttpClient:
             retries = self.max_retries
 
         self.connection_stats["total_requests"] += 1
+        request_start_time = time.time()
+
+        # 智能限流
+        await rate_limiter.acquire(url)
 
         for attempt in range(retries):
             try:
@@ -219,12 +224,15 @@ class EnhancedHttpClient:
                     headers["Referer"] = referer
 
                 async with session.get(url, headers=headers) as response:
-                    logger.debug(f"HTTP响应: {response.status} - {url}")
+                    response_time = time.time() - request_start_time
+                    logger.debug(f"HTTP响应: {response.status} - {url} ({response_time:.2f}s)")
 
                     if response.status == 200:
                         content = await response.text()
                         if content and len(content) > 100:
                             self.connection_stats["successful_requests"] += 1
+                            # 记录成功请求
+                            rate_limiter.record_success(url, response_time)
                             return content
                         else:
                             logger.warning(
@@ -243,6 +251,16 @@ class EnhancedHttpClient:
                                 retries=retries - 1,
                             )
 
+                    elif response.status == 429:  # Too Many Requests
+                        retry_after = response.headers.get("Retry-After", "1")
+                        try:
+                            delay = float(retry_after)
+                        except:
+                            delay = 1.0
+                        logger.warning(f"服务器限流，等待 {delay}s: {url}")
+                        await asyncio.sleep(delay)
+                        continue
+
                     else:
                         logger.warning(f"HTTP错误状态码: {response.status} - {url}")
                         if response.status >= 500 and attempt < retries - 1:
@@ -252,6 +270,7 @@ class EnhancedHttpClient:
 
             except asyncio.TimeoutError:
                 logger.warning(f"请求超时 (尝试 {attempt + 1}/{retries}): {url}")
+                rate_limiter.record_failure(url)
                 if attempt < retries - 1:
                     await asyncio.sleep(self.retry_delay)
                     continue
@@ -260,11 +279,13 @@ class EnhancedHttpClient:
                 logger.error(
                     f"请求失败 (尝试 {attempt + 1}/{retries}): {url} - {str(e)}"
                 )
+                rate_limiter.record_failure(url)
                 if attempt < retries - 1:
                     await asyncio.sleep(self.retry_delay * (attempt + 1))
                     continue
 
         self.connection_stats["failed_requests"] += 1
+        rate_limiter.record_failure(url)
         logger.error(f"所有重试失败: {url}")
         return None
 
