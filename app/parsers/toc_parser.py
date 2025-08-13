@@ -77,8 +77,8 @@ class TocParser:
         # 数据清洗和验证
         chapters = self._clean_and_validate_chapters(chapters)
         
-        # 排序章节
-        chapters.sort(key=lambda x: x.order)
+        # 智能排序章节
+        chapters = self._smart_sort_chapters(chapters)
 
         # 截取指定范围的章节
         start_idx = max(0, start - 1)
@@ -532,12 +532,15 @@ class TocParser:
                 self._is_valid_chapter_url(chapter.url)):
                 valid_chapters.append(chapter)
         
+        # 过滤最新章节，只保留正文目录
+        filtered_chapters = self._filter_latest_chapters(valid_chapters)
+        
         # 重新排序
-        for i, chapter in enumerate(valid_chapters):
+        for i, chapter in enumerate(filtered_chapters):
             chapter.order = i + 1
         
-        logger.info(f"章节清洗完成：原始 {len(chapters)} 个，有效 {len(valid_chapters)} 个")
-        return valid_chapters
+        logger.info(f"章节清洗完成：原始 {len(chapters)} 个，有效 {len(valid_chapters)} 个，过滤后 {len(filtered_chapters)} 个")
+        return filtered_chapters
 
     async def _handle_pagination(self, toc_url: str) -> List[ChapterInfo]:
         """处理目录分页"""
@@ -779,3 +782,242 @@ class TocParser:
             return []
 
         return self._parse_toc(html, url)
+
+    def _filter_latest_chapters(self, chapters: List[ChapterInfo]) -> List[ChapterInfo]:
+        """过滤最新章节，只保留正文目录
+        
+        很多书源的目录结构是：
+        1. 最新章节（最近更新的几章）
+        2. 正文目录（从第一章开始的完整目录）
+        
+        我们需要识别并过滤掉最新章节部分，只保留正文目录
+        """
+        if len(chapters) <= 10:  # 如果章节数太少，不进行过滤
+            return chapters
+        
+        logger.info(f"开始过滤最新章节，原始章节数：{len(chapters)}")
+        
+        # 分析章节标题，寻找章节编号模式
+        chapter_numbers = []
+        for i, chapter in enumerate(chapters):
+            number = self._extract_chapter_number(chapter.title)
+            chapter_numbers.append((i, number, chapter))
+        
+        # 寻找正文目录的开始位置
+        main_content_start = self._find_main_content_start(chapter_numbers)
+        
+        if main_content_start > 0:
+            logger.info(f"检测到最新章节部分，从索引 {main_content_start} 开始是正文目录")
+            filtered_chapters = [chapter for _, _, chapter in chapter_numbers[main_content_start:]]
+            
+            # 验证过滤结果的合理性
+            if len(filtered_chapters) >= len(chapters) * 0.5:  # 保留的章节应该占一半以上
+                return filtered_chapters
+            else:
+                logger.warning("过滤结果异常，保留原始章节列表")
+                return chapters
+        else:
+            logger.info("未检测到最新章节部分，保留原始章节列表")
+            return chapters
+    
+    def _extract_chapter_number(self, title: str) -> int:
+        """从章节标题中提取章节编号"""
+        if not title:
+            return 0
+        
+        # 常见的章节编号模式
+        patterns = [
+            r'第\s*(\d+)\s*章',           # 第123章
+            r'第\s*([一二三四五六七八九十百千万]+)\s*章',  # 第一章
+            r'chapter\s*(\d+)',          # chapter 123
+            r'ch\s*(\d+)',               # ch 123
+            r'^(\d+)[\s\.\-]',           # 123. 或 123-
+            r'(\d+)$',                   # 结尾的数字
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, title, re.IGNORECASE)
+            if match:
+                try:
+                    number_str = match.group(1)
+                    # 处理中文数字
+                    if re.match(r'^[一二三四五六七八九十百千万]+$', number_str):
+                        return self._chinese_to_number(number_str)
+                    else:
+                        return int(number_str)
+                except (ValueError, IndexError):
+                    continue
+        
+        return 0
+    
+    def _chinese_to_number(self, chinese_num: str) -> int:
+        """将中文数字转换为阿拉伯数字（简单实现）"""
+        chinese_map = {
+            '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+            '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+            '百': 100, '千': 1000, '万': 10000
+        }
+        
+        if chinese_num == '十':
+            return 10
+        
+        result = 0
+        temp = 0
+        
+        for char in chinese_num:
+            if char in chinese_map:
+                value = chinese_map[char]
+                if value >= 10:
+                    if temp == 0:
+                        temp = 1
+                    result += temp * value
+                    temp = 0
+                else:
+                    temp = value
+        
+        result += temp
+        return result if result > 0 else 0
+    
+    def _find_main_content_start(self, chapter_numbers: List[tuple]) -> int:
+        """找到正文目录的开始位置
+        
+        Args:
+            chapter_numbers: [(索引, 章节号, 章节对象), ...]
+            
+        Returns:
+            正文目录开始的索引位置，0表示从头开始
+        """
+        if len(chapter_numbers) <= 10:
+            return 0
+        
+        # 策略1：寻找章节号为1的位置
+        for i, (idx, number, chapter) in enumerate(chapter_numbers):
+            if number == 1:
+                # 检查这个位置之前是否有更大的章节号（表明前面是最新章节）
+                if i > 0:
+                    prev_numbers = [num for _, num, _ in chapter_numbers[:i] if num > 0]
+                    if prev_numbers and max(prev_numbers) > 10:  # 前面有较大的章节号
+                        logger.info(f"在索引 {i} 找到第1章，前面有最新章节")
+                        return i
+                
+                # 如果第1章在前面几个位置，可能整个都是正文
+                if i <= 5:
+                    return 0
+        
+        # 策略2：寻找章节号重置点（从大数字突然跳到小数字）
+        for i in range(1, len(chapter_numbers)):
+            curr_number = chapter_numbers[i][1]
+            prev_number = chapter_numbers[i-1][1]
+            
+            if (curr_number > 0 and prev_number > 0 and 
+                curr_number < prev_number and 
+                prev_number - curr_number > 50):  # 章节号大幅下降
+                logger.info(f"在索引 {i} 检测到章节号重置：{prev_number} -> {curr_number}")
+                return i
+        
+        # 策略3：检测章节标题模式的变化
+        title_patterns = []
+        for _, _, chapter in chapter_numbers:
+            pattern = self._get_title_pattern(chapter.title)
+            title_patterns.append(pattern)
+        
+        # 寻找模式变化点
+        for i in range(10, min(len(title_patterns), 50)):
+            # 检查前面10个和后面10个的模式
+            prev_patterns = set(title_patterns[max(0, i-10):i])
+            next_patterns = set(title_patterns[i:min(len(title_patterns), i+10)])
+            
+            # 如果模式发生显著变化，可能是从最新章节转到正文目录
+            if len(prev_patterns & next_patterns) == 0 and len(next_patterns) == 1:
+                logger.info(f"在索引 {i} 检测到标题模式变化")
+                return i
+        
+        # 策略4：如果前面的章节标题包含"最新"、"更新"等关键词
+        latest_keywords = ['最新', '更新', '新增', 'latest', 'new', 'update']
+        for i, (_, _, chapter) in enumerate(chapter_numbers[:20]):  # 只检查前20个
+            title_lower = chapter.title.lower()
+            if any(keyword in title_lower for keyword in latest_keywords):
+                # 寻找这个区域的结束位置
+                for j in range(i+1, min(len(chapter_numbers), i+15)):
+                    next_title = chapter_numbers[j][2].title.lower()
+                    if not any(keyword in next_title for keyword in latest_keywords):
+                        logger.info(f"在索引 {j} 检测到最新章节区域结束")
+                        return j
+        
+        return 0  # 未检测到最新章节，从头开始
+    
+    def _get_title_pattern(self, title: str) -> str:
+        """获取章节标题的模式"""
+        if not title:
+            return "empty"
+        
+        # 简化的模式识别
+        if re.search(r'第\s*\d+\s*章', title):
+            return "第X章"
+        elif re.search(r'第\s*[一二三四五六七八九十百千万]+\s*章', title):
+            return "第X章_中文"
+        elif re.search(r'chapter\s*\d+', title, re.IGNORECASE):
+            return "chapter_X"
+        elif re.search(r'^\d+[\.\-\s]', title):
+            return "数字开头"
+        else:
+            return "其他"
+
+    def _smart_sort_chapters(self, chapters: List[ChapterInfo]) -> List[ChapterInfo]:
+        """智能排序章节
+        
+        优先使用章节标题中的编号进行排序，如果没有编号则使用原始顺序
+        """
+        if not chapters:
+            return chapters
+        
+        logger.info(f"开始智能排序 {len(chapters)} 个章节")
+        
+        # 为每个章节提取排序键
+        chapters_with_sort_key = []
+        for chapter in chapters:
+            chapter_number = self._extract_chapter_number(chapter.title)
+            sort_key = (chapter_number, chapter.order) if chapter_number > 0 else (float('inf'), chapter.order)
+            chapters_with_sort_key.append((sort_key, chapter))
+        
+        # 按排序键排序
+        chapters_with_sort_key.sort(key=lambda x: x[0])
+        
+        # 提取排序后的章节并重新分配order
+        sorted_chapters = []
+        for i, (sort_key, chapter) in enumerate(chapters_with_sort_key):
+            chapter.order = i + 1
+            sorted_chapters.append(chapter)
+        
+        # 验证排序结果
+        self._validate_chapter_order(sorted_chapters)
+        
+        logger.info(f"章节智能排序完成")
+        return sorted_chapters
+    
+    def _validate_chapter_order(self, chapters: List[ChapterInfo]):
+        """验证章节排序结果"""
+        if len(chapters) < 5:
+            return
+        
+        # 检查前几个章节是否符合预期
+        first_few_numbers = []
+        for chapter in chapters[:10]:
+            number = self._extract_chapter_number(chapter.title)
+            if number > 0:
+                first_few_numbers.append(number)
+        
+        if first_few_numbers:
+            # 检查是否基本有序
+            is_ascending = all(first_few_numbers[i] <= first_few_numbers[i+1] 
+                             for i in range(len(first_few_numbers)-1))
+            
+            if is_ascending:
+                logger.info(f"章节排序验证通过，前几章编号：{first_few_numbers[:5]}")
+            else:
+                logger.warning(f"章节排序可能有问题，前几章编号：{first_few_numbers[:5]}")
+        
+        # 输出前几个章节标题用于调试
+        logger.debug("排序后前几个章节：")
+        for i, chapter in enumerate(chapters[:5]):
+            logger.debug(f"  {i+1}. {chapter.title}")

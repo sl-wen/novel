@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from typing import Optional
 
 import aiohttp
@@ -185,9 +186,23 @@ class BookParser:
         if toc_url and not toc_url.startswith(("http://", "https://")):
             toc_url = self._build_full_url(toc_url, url)
 
+        # 如果没有获取到书名，尝试从页面title中提取
+        if not title:
+            title_element = soup.find('title')
+            if title_element:
+                page_title = title_element.get_text(strip=True)
+                # 移除常见的网站名称后缀
+                title = re.sub(r'[-_|].*?(小说|网|书|阅读).*$', '', page_title).strip()
+        
+        # 如果仍然没有标题，尝试从h1标签获取
+        if not title:
+            h1_element = soup.find('h1')
+            if h1_element:
+                title = h1_element.get_text(strip=True)
+
         return Book(
-            title=title or "未知标题",
-            author=author or "未知作者",
+            title=title if title else "未知标题",
+            author=author if author else "未知作者",
             intro=intro or "",
             cover=cover or "",
             status=status or "未知",
@@ -213,28 +228,44 @@ class BookParser:
             return ""
 
         try:
-            # 处理meta标签选择器
-            if selector.startswith("meta["):
-                # 解析meta选择器，例如: meta[property="og:novel:book_name"]
-                import re
-                match = re.search(r'meta\[([^\]]+)\]', selector)
-                if match:
-                    attr_part = match.group(1)
-                    # 解析属性，例如: property="og:novel:book_name"
-                    attr_match = re.search(r'([^=]+)="([^"]+)"', attr_part)
-                    if attr_match:
-                        attr_name = attr_match.group(1).strip()
-                        attr_value = attr_match.group(2)
-                        
-                        # 查找对应的meta标签
-                        meta_tag = soup.find("meta", {attr_name: attr_value})
-                        if meta_tag:
-                            return meta_tag.get("content", "")
+            # 如果selector是一个列表（JSON配置中的数组），尝试每个选择器
+            if isinstance(selector, list):
+                selectors = selector
+            else:
+                # 如果是字符串，可能包含多个选择器（逗号分隔）
+                selectors = [s.strip() for s in selector.split(',') if s.strip()]
             
-            # 处理普通CSS选择器
-            element = soup.select_one(selector)
-            if element:
-                return element.get_text(strip=True)
+            # 尝试每个选择器
+            for sel in selectors:
+                if not sel:
+                    continue
+                    
+                # 处理meta标签选择器
+                if sel.startswith("meta["):
+                    # 解析meta选择器，例如: meta[property="og:novel:book_name"]
+                    import re
+                    match = re.search(r'meta\[([^\]]+)\]', sel)
+                    if match:
+                        attr_part = match.group(1)
+                        # 解析属性，例如: property="og:novel:book_name"
+                        attr_match = re.search(r'([^=]+)="([^"]+)"', attr_part)
+                        if attr_match:
+                            attr_name = attr_match.group(1).strip()
+                            attr_value = attr_match.group(2)
+                            
+                            # 查找对应的meta标签
+                            meta_tag = soup.find("meta", {attr_name: attr_value})
+                            if meta_tag:
+                                content = meta_tag.get("content", "")
+                                if content.strip():
+                                    return content.strip()
+                
+                # 处理普通CSS选择器
+                element = soup.select_one(sel)
+                if element:
+                    text = element.get_text(strip=True)
+                    if text:
+                        return text
             
             return ""
         except Exception as e:
@@ -256,25 +287,41 @@ class BookParser:
             return ""
 
         try:
-            # 处理meta标签选择器
-            if selector.startswith("meta["):
-                import re
-                match = re.search(r'meta\[([^\]]+)\]', selector)
-                if match:
-                    attr_part = match.group(1)
-                    attr_match = re.search(r'([^=]+)="([^"]+)"', attr_part)
-                    if attr_match:
-                        attr_name = attr_match.group(1).strip()
-                        attr_value = attr_match.group(2)
-                        
-                        meta_tag = soup.find("meta", {attr_name: attr_value})
-                        if meta_tag:
-                            return meta_tag.get("content", "")
+            # 如果selector是一个列表（JSON配置中的数组），尝试每个选择器
+            if isinstance(selector, list):
+                selectors = selector
+            else:
+                # 如果是字符串，可能包含多个选择器（逗号分隔）
+                selectors = [s.strip() for s in selector.split(',') if s.strip()]
             
-            # 处理普通CSS选择器
-            element = soup.select_one(selector)
-            if element:
-                return element.get(attr, "")
+            # 尝试每个选择器
+            for sel in selectors:
+                if not sel:
+                    continue
+                    
+                # 处理meta标签选择器
+                if sel.startswith("meta["):
+                    import re
+                    match = re.search(r'meta\[([^\]]+)\]', sel)
+                    if match:
+                        attr_part = match.group(1)
+                        attr_match = re.search(r'([^=]+)="([^"]+)"', attr_part)
+                        if attr_match:
+                            attr_name = attr_match.group(1).strip()
+                            attr_value = attr_match.group(2)
+                            
+                            meta_tag = soup.find("meta", {attr_name: attr_value})
+                            if meta_tag:
+                                content = meta_tag.get("content", "")
+                                if content.strip():
+                                    return content.strip()
+                
+                # 处理普通CSS选择器
+                element = soup.select_one(sel)
+                if element:
+                    attr_value = element.get(attr, "")
+                    if attr_value:
+                        return attr_value
             
             return ""
         except Exception as e:

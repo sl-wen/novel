@@ -150,6 +150,11 @@ class ContentValidator:
         if not content:
             return ""
 
+        import html
+        
+        # 解码HTML实体
+        content = html.unescape(content)
+
         # 移除广告内容
         for pattern in self.ad_patterns:
             content = re.sub(pattern, "", content, flags=re.IGNORECASE)
@@ -174,6 +179,11 @@ class ContentValidator:
         """
         if not content:
             return ""
+
+        import html
+        
+        # 先解码HTML实体
+        content = html.unescape(content)
 
         # 移除HTML标签
         content = re.sub(r"<[^>]+>", "", content)
