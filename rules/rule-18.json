@@ -2,7 +2,8 @@
   "id": 18,
   "name": "悠久小说网",
   "url": "http://www.ujxsw.org/",
-  "enabled": true,
+  "enabled": false,
+  "comment": "已禁用：域名 www.ujxsw.org 和 wap.ujxsw.org 无法访问 (2024年8月)",
   "type": "html",
   "language": "zh_CN",
   "search": {
