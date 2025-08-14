@@ -51,13 +51,13 @@ class EnhancedHttpClient:
         self._cleanup_task: Optional[asyncio.Task] = None
         self._shutdown: bool = False
 
-        # 性能优化配置
-        self.max_sessions_per_host = 3
-        self.session_timeout = 500  # 会话超时时间（秒）
-        self.connection_timeout = 10
-        self.read_timeout = 60
-        self.max_retries = 3
-        self.retry_delay = 1.0
+        # 性能优化配置（平衡版）
+        self.max_sessions_per_host = 2  # 减少每主机会话数
+        self.session_timeout = 120  # 大幅减少会话超时时间
+        self.connection_timeout = 15  # 增加连接超时时间
+        self.read_timeout = 30  # 减少读取超时时间
+        self.max_retries = 2  # 减少重试次数
+        self.retry_delay = 0.8  # 适中的重试延迟
 
         # 会话缓存
         self.session_cache = {}

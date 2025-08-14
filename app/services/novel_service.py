@@ -38,10 +38,10 @@ class NovelService:
         self.cache_manager = CacheManager()
         self.http_client = EnhancedHttpClient()
 
-        # 性能优化配置
-        self.search_timeout = 15  # 搜索超时时间（秒）
-        self.max_concurrent_sources = 8  # 最大并发书源数
-        self.max_concurrent_chapters = 10  # 最大并发章节下载数
+        # 性能优化配置（平衡版）
+        self.search_timeout = 20  # 增加搜索超时时间（秒）
+        self.max_concurrent_sources = 5  # 降低最大并发书源数
+        self.max_concurrent_chapters = 8  # 降低最大并发章节下载数
 
         # 连接池和会话管理
         self.session_pool = {}

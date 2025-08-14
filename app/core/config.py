@@ -34,12 +34,12 @@ class Settings(BaseSettings):
     MAX_THREADS: int = 50
     MAX_CONCURRENT_REQUESTS: int = 50  # 最大并发请求数
 
-    # 下载设置
-    DOWNLOAD_CONCURRENT_LIMIT: int = 50  # 下载并发限制
-    DOWNLOAD_RETRY_TIMES: int = 2  # 下载重试次数
-    DOWNLOAD_RETRY_DELAY: float = 2.0  # 下载重试延迟（秒）
-    DOWNLOAD_BATCH_DELAY: float = 1.0  # 批次间延迟（秒）
-    MIN_CONTENT_LENGTH: int = 100  # 最小内容长度（字符数）
+    # 下载设置（优化版）
+    DOWNLOAD_CONCURRENT_LIMIT: int = 8  # 降低下载并发限制
+    DOWNLOAD_RETRY_TIMES: int = 3  # 保持合理重试次数
+    DOWNLOAD_RETRY_DELAY: float = 1.2  # 适中的重试延迟（秒）
+    DOWNLOAD_BATCH_DELAY: float = 0.5  # 适中的批次间延迟（秒）
+    MIN_CONTENT_LENGTH: int = 50  # 降低最小内容长度要求
 
     # 搜索设置
     MAX_SEARCH_PAGES: int = 3  # 最大搜索页数

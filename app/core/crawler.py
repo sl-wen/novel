@@ -28,21 +28,21 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DownloadConfig:
-    """下载配置（优化版）"""
+    """下载配置（平衡优化版）"""
 
-    max_concurrent: int = 15  # 增加并发数
-    retry_times: int = 3  # 减少重试次数
-    retry_delay: float = 0.5  # 大幅减少重试延迟
-    batch_delay: float = 0.1  # 大幅减少批次间延迟
-    timeout: int = 30  # 减少超时时间
+    max_concurrent: int = 8  # 降低并发数，减少服务器压力
+    retry_times: int = 3  # 保持合理的重试次数
+    retry_delay: float = 1.0  # 适中的重试延迟
+    batch_delay: float = 0.3  # 适中的批次间延迟，避免过快请求
+    timeout: int = 45  # 增加超时时间，处理复杂页面
     enable_recovery: bool = True  # 启用恢复机制
     progress_callback: Optional[callable] = None
     
-    # 新增性能优化选项
-    enable_batch_write: bool = True  # 启用批量写入
-    batch_write_size: int = 10  # 批量写入大小
-    skip_quality_check: bool = False  # 跳过质量检查以提高速度
-    connection_pool_size: int = 50  # 连接池大小
+    # 性能优化选项（简化版）
+    enable_batch_write: bool = False  # 暂时禁用批量写入，减少复杂度
+    batch_write_size: int = 5  # 减少批量大小
+    skip_quality_check: bool = True  # 跳过质量检查以提高速度
+    connection_pool_size: int = 25  # 减少连接池大小
 
 
 class Crawler:
@@ -284,17 +284,15 @@ class Crawler:
         download_dir: Path,
         task_id: Optional[str] = None,
     ) -> List[Chapter]:
-        """章节下载（高性能优化版）"""
+        """章节下载（简化稳定版）"""
         self.monitor.start_download(len(toc))
         
-        # 性能统计
         start_time = time.time()
         download_stats = {
             "total_chapters": len(toc),
             "downloaded": 0,
             "skipped": 0,
-            "failed": 0,
-            "batch_writes": 0
+            "failed": 0
         }
 
         source = Source(source_id)
@@ -307,31 +305,8 @@ class Crawler:
         temp_dir.mkdir(exist_ok=True)
 
         logger.info(
-            f"开始高性能下载 {len(toc)} 章，最大并发数: {self.download_config.max_concurrent}"
+            f"开始稳定下载 {len(toc)} 章，最大并发数: {self.download_config.max_concurrent}"
         )
-
-        # 批量写入队列
-        write_queue = []
-        write_lock = asyncio.Lock()
-
-        async def batch_write_chapters():
-            """批量写入章节到文件"""
-            nonlocal write_queue
-            if not write_queue:
-                return
-            
-            async with write_lock:
-                current_batch = write_queue.copy()
-                write_queue.clear()
-                
-                # 并发写入多个文件
-                write_tasks = []
-                for chapter_data in current_batch:
-                    write_tasks.append(self._write_chapter_file(chapter_data, temp_dir))
-                
-                await asyncio.gather(*write_tasks, return_exceptions=True)
-                download_stats["batch_writes"] += 1
-                logger.debug(f"批量写入 {len(current_batch)} 个章节")
 
         # 使用信号量控制并发
         semaphore = asyncio.Semaphore(self.download_config.max_concurrent)
@@ -347,23 +322,19 @@ class Crawler:
             
             async with semaphore:
                 try:
+                    # 添加批次间延迟
+                    await asyncio.sleep(self.download_config.batch_delay)
+                    
                     # 下载章节内容
                     chapter = await self._download_single_chapter_optimized(
                         parser, chapter_info
                     )
                     
                     if chapter:
-                        # 添加到批量写入队列
-                        async with write_lock:
-                            write_queue.append({
-                                'chapter': chapter,
-                                'filename': safe_filename,
-                                'chapter_info': chapter_info
-                            })
-                        
-                        # 当队列达到批量大小时，执行批量写入
-                        if len(write_queue) >= self.download_config.batch_write_size:
-                            await batch_write_chapters()
+                        # 直接写入文件（简化版）
+                        chapter_file = temp_dir / f"{safe_filename}.txt"
+                        with open(chapter_file, "w", encoding="utf-8") as f:
+                            f.write(chapter.content)
                         
                         chapters.append(chapter)
                         download_stats["downloaded"] += 1
@@ -393,14 +364,10 @@ class Crawler:
         tasks = [download_one(ch) for ch in toc]
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 写入剩余的章节
-        if write_queue:
-            await batch_write_chapters()
-
-        # 处理失败的章节（减少重试次数）
-        if self.failed_chapters and len(self.failed_chapters) < len(toc) * 0.3:  # 只有失败率低于30%时才重试
+        # 简化失败章节重试
+        if self.failed_chapters and len(self.failed_chapters) < len(toc) * 0.3:
             logger.info(f"重试失败的 {len(self.failed_chapters)} 个章节")
-            retry_chapters = await self._retry_failed_chapters_optimized(parser, temp_dir)
+            retry_chapters = await self._retry_failed_chapters_simple(parser, temp_dir)
             chapters.extend(retry_chapters)
             download_stats["downloaded"] += len(retry_chapters)
 
@@ -422,7 +389,7 @@ class Crawler:
         
         logger.info(f"下载完成统计: 总章节={download_stats['total_chapters']}, "
                    f"下载={download_stats['downloaded']}, 跳过={download_stats['skipped']}, "
-                   f"失败={download_stats['failed']}, 批量写入次数={download_stats['batch_writes']}, "
+                   f"失败={download_stats['failed']}, "
                    f"耗时={download_time:.2f}s, 速度={download_stats['downloaded']/max(download_time, 1):.2f}章/s")
 
         return chapters
@@ -430,12 +397,12 @@ class Crawler:
     async def _download_single_chapter_optimized(
         self, parser: ChapterParser, chapter_info: ChapterInfo
     ) -> Optional[Chapter]:
-        """优化版单章节下载（不写文件，只返回内容）"""
+        """简化版单章节下载（专注稳定性）"""
         for attempt in range(self.download_config.retry_times):
             try:
                 self.monitor.chapter_started(chapter_info.title, chapter_info.url)
 
-                # 下载章节
+                # 下载章节（简化超时处理）
                 chapter = await asyncio.wait_for(
                     parser.parse(chapter_info.url, chapter_info.title, chapter_info.order),
                     timeout=self.download_config.timeout
@@ -447,9 +414,9 @@ class Crawler:
                         continue
                     return None
 
-                # 快速内容验证（可选）
+                # 简化内容验证（仅基本检查）
                 if not self.download_config.skip_quality_check:
-                    if len(chapter.content) < settings.MIN_CHAPTER_LENGTH:
+                    if len(chapter.content) < 20:  # 极简检查
                         if attempt < self.download_config.retry_times - 1:
                             await asyncio.sleep(self.download_config.retry_delay)
                             continue
@@ -459,7 +426,7 @@ class Crawler:
                 chapter.order = chapter_info.order
 
                 self.monitor.chapter_completed(
-                    chapter_info.title, len(chapter.content), 1.0  # 跳过质量评分以提高速度
+                    chapter_info.title, len(chapter.content), 1.0
                 )
 
                 return chapter
@@ -467,32 +434,18 @@ class Crawler:
             except asyncio.TimeoutError:
                 logger.warning(f"章节下载超时: {chapter_info.title} (尝试 {attempt + 1}/{self.download_config.retry_times})")
                 if attempt < self.download_config.retry_times - 1:
-                    await asyncio.sleep(self.download_config.retry_delay)
+                    await asyncio.sleep(self.download_config.retry_delay * (attempt + 1))
                     continue
 
             except Exception as e:
                 logger.warning(f"章节下载异常: {chapter_info.title} - {str(e)} (尝试 {attempt + 1}/{self.download_config.retry_times})")
                 if attempt < self.download_config.retry_times - 1:
-                    await asyncio.sleep(self.download_config.retry_delay * (attempt + 1))
+                    await asyncio.sleep(self.download_config.retry_delay)
                     continue
 
         return None
 
-    async def _write_chapter_file(self, chapter_data: dict, temp_dir: Path):
-        """异步写入章节文件"""
-        try:
-            chapter = chapter_data['chapter']
-            filename = chapter_data['filename']
-            chapter_file = temp_dir / f"{filename}.txt"
-            
-            # 使用线程池进行文件I/O，避免阻塞事件循环
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: chapter_file.write_text(chapter.content, encoding='utf-8')
-            )
-        except Exception as e:
-            logger.error(f"写入章节文件失败: {filename} - {str(e)}")
+
 
     async def _load_existing_chapter(self, file_path: str, safe_filename: str, toc: List[ChapterInfo]) -> Optional[Chapter]:
         """异步加载已存在的章节文件"""
@@ -521,41 +474,40 @@ class Crawler:
             logger.warning(f"加载已存在章节失败 {safe_filename}: {str(e)}")
             return None
 
-    async def _retry_failed_chapters_optimized(
+    async def _retry_failed_chapters_simple(
         self, parser: ChapterParser, temp_dir: Path
     ) -> List[Chapter]:
-        """优化版失败章节重试"""
+        """简化版失败章节重试"""
         retry_chapters = []
         
-        # 减少重试的并发数，提高成功率
-        retry_semaphore = asyncio.Semaphore(max(self.download_config.max_concurrent // 2, 3))
+        # 降低重试并发数，提高成功率
+        retry_semaphore = asyncio.Semaphore(max(self.download_config.max_concurrent // 3, 2))
         
         async def retry_one(chapter_info: ChapterInfo) -> Optional[Chapter]:
             async with retry_semaphore:
                 # 增加重试间隔
                 await asyncio.sleep(self.download_config.retry_delay * 2)
-                return await self._download_single_chapter_optimized(parser, chapter_info)
+                chapter = await self._download_single_chapter_optimized(parser, chapter_info)
+                
+                if chapter:
+                    # 直接写入文件
+                    safe_filename = FileUtils.sanitize_filename(chapter.title)
+                    chapter_file = temp_dir / f"{safe_filename}.txt"
+                    with open(chapter_file, "w", encoding="utf-8") as f:
+                        f.write(chapter.content)
+                
+                return chapter
         
-        tasks = [retry_one(ch) for ch in self.failed_chapters[:10]]  # 限制重试数量
+        # 限制重试数量，避免过度重试
+        retry_list = self.failed_chapters[:min(10, len(self.failed_chapters))]
+        tasks = [retry_one(ch) for ch in retry_list]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         for result in results:
             if isinstance(result, Chapter):
                 retry_chapters.append(result)
         
-        # 批量写入重试成功的章节
         if retry_chapters:
-            write_tasks = []
-            for chapter in retry_chapters:
-                safe_filename = FileUtils.sanitize_filename(chapter.title)
-                chapter_data = {
-                    'chapter': chapter,
-                    'filename': safe_filename,
-                    'chapter_info': None
-                }
-                write_tasks.append(self._write_chapter_file(chapter_data, temp_dir))
-            
-            await asyncio.gather(*write_tasks, return_exceptions=True)
             logger.info(f"重试成功 {len(retry_chapters)} 个章节")
         
         return retry_chapters
