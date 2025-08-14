@@ -59,6 +59,10 @@
     "word_count": ""
   },
   "toc": {
+    "url_transform": {
+      "pattern": "^(https://www\\.tianxibook\\.com/)(?:book|novel)/(\\d+)/?$",
+      "replacement": "\\1xiaoshuo/\\2/"
+    },
     "list": "#list a",
     "title": "text",
     "url": "href",
