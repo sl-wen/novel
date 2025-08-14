@@ -53,8 +53,9 @@ class EnhancedHttpClient:
         # 性能优化配置
         self.max_sessions_per_host = 3
         self.session_timeout = 500  # 会话超时时间（秒）
-        self.connection_timeout = 10
-        self.read_timeout = 60
+        self.connection_timeout = getattr(settings, "CONNECTION_TIMEOUT", 15)
+        self.read_timeout = getattr(settings, "READ_TIMEOUT", 120)
+        self.socket_timeout = getattr(settings, "SOCKET_TIMEOUT", 30)
         self.max_retries = 3
         self.retry_delay = 1.0
 
@@ -158,7 +159,8 @@ class EnhancedHttpClient:
             timeout = ClientTimeout(
                 total=self.read_timeout,
                 connect=self.connection_timeout,
-                sock_read=self.read_timeout,
+                sock_read=self.socket_timeout,
+                sock_connect=self.connection_timeout,
             )
 
             session = ClientSession(
@@ -251,16 +253,20 @@ class EnhancedHttpClient:
                             continue
 
             except asyncio.TimeoutError:
-                logger.warning(f"请求超时 (尝试 {attempt + 1}/{retries}): {url}")
+                logger.warning(f"请求超时 (尝试 {attempt + 1}/{retries}): {url} (超时设置: 连接={self.connection_timeout}s, 读取={self.socket_timeout}s)")
                 if attempt < retries - 1:
-                    await asyncio.sleep(self.retry_delay)
+                    # 超时后使用指数退避策略
+                    backoff_delay = self.retry_delay * (2 ** attempt)
+                    await asyncio.sleep(min(backoff_delay, 10))  # 最大延迟10秒
                     continue
 
             except Exception as e:
+                error_type = type(e).__name__
                 logger.error(
-                    f"请求失败 (尝试 {attempt + 1}/{retries}): {url} - {str(e)}"
+                    f"请求失败 (尝试 {attempt + 1}/{retries}): {url} - {error_type}: {str(e)}"
                 )
                 if attempt < retries - 1:
+                    # 其他异常使用线性退避
                     await asyncio.sleep(self.retry_delay * (attempt + 1))
                     continue
 
