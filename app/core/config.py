@@ -52,8 +52,13 @@ class Settings(BaseSettings):
 
     # HTTP设置
     DEFAULT_TIMEOUT: int = 100  # 秒
+    CONNECTION_TIMEOUT: int = 15  # 连接超时（秒）
+    READ_TIMEOUT: int = 120  # 读取超时（秒）
+    SOCKET_TIMEOUT: int = 30  # 套接字超时（秒）
     REQUEST_RETRY_TIMES: int = 2  # 请求重试次数
     REQUEST_RETRY_DELAY: float = 2.0  # 请求重试延迟（秒）
+    HTTP_POOL_CONNECTIONS: int = 20  # 连接池大小
+    HTTP_POOL_MAXSIZE: int = 20  # 最大连接数
     DEFAULT_HEADERS: dict = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -65,6 +70,12 @@ class Settings(BaseSettings):
     # 内容过滤设置
     ENABLE_CONTENT_FILTER: bool = True  # 是否启用内容过滤
     MIN_CHAPTER_LENGTH: int = 50  # 最小章节长度（字符数）
+
+    # 文件就绪检查设置
+    FILE_READY_CHECK_RETRIES: int = 10  # 文件就绪检查重试次数
+    FILE_READY_CHECK_DELAY: float = 0.6  # 文件就绪检查延迟（秒）
+    EPUB_READY_CHECK_RETRIES: int = 15  # EPUB文件就绪检查重试次数
+    EPUB_READY_CHECK_DELAY: float = 1.0  # EPUB文件就绪检查延迟（秒）
 
     class Config:
         env_file = ".env"

@@ -564,21 +564,25 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
             return JSONResponse(status_code=500, content={"code": 500, "message": "文件路径未设置", "data": progress.to_dict()})
         
         # 文件就绪检查：确保文件存在且完全写入完成
-        async def is_file_ready(file_path: str, max_retries: int = 5, retry_delay: float = 0.5) -> bool:
+        async def is_file_ready(file_path: str, max_retries: int = 8, retry_delay: float = 0.6) -> bool:
             """检查文件是否已经完全写入完成"""
             # 对EPUB文件使用更多重试次数和更长延迟
             if file_path.lower().endswith('.epub'):
-                max_retries = 10
-                retry_delay = 0.8
+                max_retries = 15  # 增加EPUB文件的重试次数
+                retry_delay = 1.0  # 增加延迟时间
+            
+            logger.info(f"开始文件就绪检查: {file_path}")
                 
             for attempt in range(max_retries):
-                if not os.path.exists(file_path):
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(retry_delay)
-                        continue
-                    return False
-                
                 try:
+                    if not os.path.exists(file_path):
+                        if attempt < max_retries - 1:
+                            logger.warning(f"文件不存在 (尝试 {attempt + 1}/{max_retries}): {file_path}")
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        logger.error(f"文件最终不存在: {file_path}")
+                        return False
+                    
                     # 检查文件是否可以正常读取且大小稳定
                     file_obj = Path(file_path)
                     initial_size = file_obj.stat().st_size
@@ -586,58 +590,87 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                     # 如果文件大小为0，说明还在写入中
                     if initial_size == 0:
                         if attempt < max_retries - 1:
+                            logger.warning(f"文件大小为0 (尝试 {attempt + 1}/{max_retries}): {file_path}")
                             await asyncio.sleep(retry_delay)
                             continue
+                        logger.error(f"文件大小始终为0: {file_path}")
                         return False
                     
-                    # 对于EPUB文件，等待更长时间确保写入完成
+                    # 等待文件写入稳定
                     if file_path.lower().endswith('.epub'):
-                        await asyncio.sleep(0.3)
+                        await asyncio.sleep(0.5)  # EPUB文件等待更长时间
                     else:
-                        await asyncio.sleep(0.1)
+                        await asyncio.sleep(0.2)  # TXT文件等待较短时间
                     
-                    final_size = file_obj.stat().st_size
-                    
-                    # 如果文件大小稳定且可以打开，说明写入完成
-                    if initial_size == final_size:
-                        try:
-                            with open(file_path, "rb") as f:
-                                # 对于EPUB文件，进行更详细的验证
-                                if file_path.lower().endswith('.epub'):
-                                    # 读取并验证EPUB文件头
-                                    header = f.read(4)
-                                    if header != b'PK\x03\x04':
-                                        if attempt < max_retries - 1:
-                                            logger.warning(f"EPUB文件头验证失败 (尝试 {attempt + 1})")
-                                            await asyncio.sleep(retry_delay)
-                                            continue
-                                        return False
-                                    # 尝试读取更多内容确保文件完整
-                                    f.read(2048)
-                                else:
-                                    # TXT文件只需读取文件头
-                                    f.read(1024)
-                            return True
-                        except (IOError, OSError) as e:
-                            logger.warning(f"文件读取检查失败 (尝试 {attempt + 1}): {str(e)}")
-                            if attempt < max_retries - 1:
-                                await asyncio.sleep(retry_delay)
-                                continue
-                            return False
-                    else:
-                        # 文件大小还在变化，继续等待
+                    # 检查文件大小是否稳定
+                    try:
+                        final_size = file_obj.stat().st_size
+                    except (FileNotFoundError, OSError) as e:
                         if attempt < max_retries - 1:
+                            logger.warning(f"文件状态检查失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
                             await asyncio.sleep(retry_delay)
                             continue
+                        logger.error(f"文件状态检查最终失败: {str(e)}")
+                        return False
+                    
+                    # 如果文件大小不稳定，继续等待
+                    if initial_size != final_size:
+                        if attempt < max_retries - 1:
+                            logger.warning(f"文件大小不稳定 (尝试 {attempt + 1}/{max_retries}): {initial_size} -> {final_size}")
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        logger.error(f"文件大小始终不稳定: {initial_size} -> {final_size}")
+                        return False
+                    
+                    # 尝试打开和读取文件
+                    try:
+                        with open(file_path, "rb") as f:
+                            # 对于EPUB文件，进行更详细的验证
+                            if file_path.lower().endswith('.epub'):
+                                # 读取并验证EPUB文件头
+                                header = f.read(4)
+                                if header != b'PK\x03\x04':
+                                    if attempt < max_retries - 1:
+                                        logger.warning(f"EPUB文件头验证失败 (尝试 {attempt + 1}/{max_retries}): {header}")
+                                        await asyncio.sleep(retry_delay)
+                                        continue
+                                    logger.error(f"EPUB文件头最终验证失败: {header}")
+                                    return False
+                                
+                                # 尝试读取更多内容确保文件完整
+                                f.seek(0)
+                                content_sample = f.read(8192)  # 读取更多内容
+                                if len(content_sample) < 8192 and final_size > 8192:
+                                    if attempt < max_retries - 1:
+                                        logger.warning(f"EPUB文件内容读取不完整 (尝试 {attempt + 1}/{max_retries})")
+                                        await asyncio.sleep(retry_delay)
+                                        continue
+                                    logger.error("EPUB文件内容读取最终不完整")
+                                    return False
+                            else:
+                                # TXT文件只需读取文件头
+                                f.read(2048)
+                        
+                        logger.info(f"文件就绪检查通过: {file_path} (大小: {final_size} 字节)")
+                        return True
+                        
+                    except (IOError, OSError, PermissionError) as e:
+                        if attempt < max_retries - 1:
+                            logger.warning(f"文件读取检查失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        logger.error(f"文件读取检查最终失败: {str(e)}")
                         return False
                         
-                except (FileNotFoundError, OSError) as e:
-                    logger.warning(f"文件检查失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                except Exception as e:
                     if attempt < max_retries - 1:
+                        logger.warning(f"文件检查异常 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
                         await asyncio.sleep(retry_delay)
                         continue
+                    logger.error(f"文件检查最终异常: {str(e)}")
                     return False
             
+            logger.error(f"文件就绪检查最终失败: {file_path}")
             return False
         
         # 执行文件就绪检查

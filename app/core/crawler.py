@@ -127,14 +127,18 @@ class Crawler:
                 book, chapters, download_dir, format
             )
 
-            # 6.1 验证文件完整性
+            # 6.1 确保文件完全写入磁盘
+            if file_path:
+                await self._flush_file_to_disk(file_path)
+
+            # 6.2 验证文件完整性
             await self._verify_file_integrity(file_path)
 
-            # 6.1.5 对于EPUB文件，进行额外的就绪检查
+            # 6.3 对于EPUB文件，进行额外的就绪检查
             if format.lower() == "epub":
                 await self._ensure_epub_file_ready(file_path)
 
-            # 6.2 记录生成文件路径
+            # 6.4 记录生成文件路径
             if task_id:
                 progress_tracker.set_file_path(task_id, str(file_path))
 
@@ -550,6 +554,32 @@ class Crawler:
         # 如果所有尝试都失败了
         raise ValueError(f"EPUB文件生成后验证失败: {result_path}")
 
+    async def _flush_file_to_disk(self, file_path: Path):
+        """确保文件完全写入磁盘"""
+        logger.info(f"开始文件写入磁盘同步: {file_path}")
+        try:
+            # 使用 fsync 确保文件写入磁盘
+            import os
+            
+            # 先检查文件是否存在
+            if not file_path.exists():
+                raise FileNotFoundError(f"文件不存在: {file_path}")
+            
+            # 获取文件描述符并同步
+            with open(file_path, "rb") as f:
+                # 强制刷新到磁盘
+                f.flush()
+                os.fsync(f.fileno())
+            
+            # 等待一小段时间确保操作系统完成写入
+            await asyncio.sleep(0.1)
+            
+            logger.info(f"文件写入磁盘同步成功: {file_path}")
+            
+        except Exception as e:
+            logger.warning(f"文件写入磁盘同步失败: {file_path} - {str(e)}")
+            # 不抛出异常，因为这只是一个优化步骤
+
     async def _verify_file_integrity(self, file_path: Path):
         """验证文件完整性"""
         try:
@@ -589,37 +619,76 @@ class Crawler:
 
     async def _ensure_epub_file_ready(self, file_path: Path):
         """确保EPUB文件完全就绪"""
-        max_attempts = 5
+        max_attempts = 10  # 增加重试次数
+        base_delay = 0.3  # 基础延迟
+        
+        logger.info(f"开始 EPUB 文件就绪检查: {file_path}")
+        
         for attempt in range(max_attempts):
             try:
-                # 检查文件大小是否稳定
-                initial_size = file_path.stat().st_size
-                await asyncio.sleep(0.2)  # 等待稍长时间
-                final_size = file_path.stat().st_size
-                
-                if initial_size == final_size and final_size > 0:
-                    # 尝试读取文件确保完整性
-                    with open(file_path, "rb") as f:
-                        header = f.read(4)
-                        if header == b'PK\x03\x04':
-                            # 尝试读取更多内容
-                            f.read(1024)
-                            logger.info(f"EPUB文件就绪检查通过: {file_path}")
-                            return
-                        else:
-                            raise ValueError("EPUB文件头无效")
-                else:
+                # 检查文件存在性
+                if not file_path.exists():
                     if attempt < max_attempts - 1:
-                        logger.warning(f"EPUB文件大小不稳定 (尝试 {attempt + 1}): {initial_size} -> {final_size}")
-                        await asyncio.sleep(0.3)
+                        logger.warning(f"EPUB文件尚不存在 (尝试 {attempt + 1}/{max_attempts})")
+                        await asyncio.sleep(base_delay * (attempt + 1))
                         continue
                     else:
-                        raise ValueError("EPUB文件大小不稳定")
+                        raise FileNotFoundError(f"EPUB文件不存在: {file_path}")
+                
+                # 检查文件大小是否稳定
+                initial_size = file_path.stat().st_size
+                
+                # 如果文件大小为0，说明还在写入中
+                if initial_size == 0:
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"EPUB文件大小为0 (尝试 {attempt + 1}/{max_attempts})")
+                        await asyncio.sleep(base_delay * (attempt + 1))
+                        continue
+                    else:
+                        raise ValueError("EPUB文件大小为0")
+                
+                # 等待文件写入稳定
+                await asyncio.sleep(base_delay)
+                final_size = file_path.stat().st_size
+                
+                # 检查大小是否稳定
+                if initial_size != final_size:
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"EPUB文件大小不稳定 (尝试 {attempt + 1}/{max_attempts}): {initial_size} -> {final_size}")
+                        await asyncio.sleep(base_delay * (attempt + 1))
+                        continue
+                    else:
+                        raise ValueError(f"EPUB文件大小不稳定: {initial_size} -> {final_size}")
+                
+                # 验证文件完整性
+                try:
+                    with open(file_path, "rb") as f:
+                        # 检查EPUB文件头
+                        header = f.read(4)
+                        if header != b'PK\x03\x04':
+                            raise ValueError(f"EPUB文件头无效: {header}")
+                        
+                        # 尝试读取更多内容确保文件完整
+                        f.seek(0)
+                        content_sample = f.read(4096)  # 读取更多内容
+                        if len(content_sample) < 4096 and final_size > 4096:
+                            raise ValueError("EPUB文件读取不完整")
+                        
+                        logger.info(f"EPUB文件就绪检查通过: {file_path} (大小: {final_size} 字节)")
+                        return
+                        
+                except (IOError, OSError) as e:
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"EPUB文件读取失败 (尝试 {attempt + 1}/{max_attempts}): {str(e)}")
+                        await asyncio.sleep(base_delay * (attempt + 1))
+                        continue
+                    else:
+                        raise ValueError(f"EPUB文件读取失败: {str(e)}")
                         
             except Exception as e:
                 if attempt < max_attempts - 1:
-                    logger.warning(f"EPUB文件就绪检查失败 (尝试 {attempt + 1}): {str(e)}")
-                    await asyncio.sleep(0.3)
+                    logger.warning(f"EPUB文件就绪检查失败 (尝试 {attempt + 1}/{max_attempts}): {str(e)}")
+                    await asyncio.sleep(base_delay * (attempt + 1))
                     continue
                 else:
                     logger.error(f"EPUB文件最终就绪检查失败: {str(e)}")
