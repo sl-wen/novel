@@ -171,6 +171,10 @@ class DownloadMonitor:
         summary = self.progress.get_summary()
         logger.info(summary)
 
+    def get_progress(self) -> DownloadProgress:
+        """获取当前下载进度"""
+        return self.progress
+
     def get_detailed_stats(self) -> Dict:
         """获取详细统计信息"""
         completed_chapters = [
