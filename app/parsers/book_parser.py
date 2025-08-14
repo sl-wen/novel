@@ -146,42 +146,60 @@ class BookParser:
         soup = BeautifulSoup(html, "html.parser")
 
         # 获取书籍标题
-        title_selector = self.book_rule.get("name", "")
-        title = self._extract_text(soup, title_selector)
+        title_selectors = self.book_rule.get("name", [])
+        if isinstance(title_selectors, str):
+            title_selectors = [title_selectors]
+        title = self._extract_text_with_multiple_selectors(soup, title_selectors)
 
         # 获取作者
-        author_selector = self.book_rule.get("author", "")
-        author = self._extract_text(soup, author_selector)
+        author_selectors = self.book_rule.get("author", [])
+        if isinstance(author_selectors, str):
+            author_selectors = [author_selectors]
+        author = self._extract_text_with_multiple_selectors(soup, author_selectors)
 
         # 获取简介
-        intro_selector = self.book_rule.get("intro", "")
-        intro = self._extract_text(soup, intro_selector)
+        intro_selectors = self.book_rule.get("intro", [])
+        if isinstance(intro_selectors, str):
+            intro_selectors = [intro_selectors]
+        intro = self._extract_text_with_multiple_selectors(soup, intro_selectors)
 
         # 获取封面图片
-        cover_selector = self.book_rule.get("cover", "")
-        cover = self._extract_attr(soup, cover_selector, "src")
+        cover_selectors = self.book_rule.get("cover", [])
+        if isinstance(cover_selectors, str):
+            cover_selectors = [cover_selectors]
+        cover = self._extract_attr_with_multiple_selectors(soup, cover_selectors, "src")
         if cover and not cover.startswith(("http://", "https://")):
             cover = self._build_full_url(cover, url)
 
         # 获取状态
-        status_selector = self.book_rule.get("status", "")
-        status = self._extract_text(soup, status_selector)
+        status_selectors = self.book_rule.get("status", [])
+        if isinstance(status_selectors, str):
+            status_selectors = [status_selectors]
+        status = self._extract_text_with_multiple_selectors(soup, status_selectors)
 
         # 获取分类
-        category_selector = self.book_rule.get("category", "")
-        category = self._extract_text(soup, category_selector)
+        category_selectors = self.book_rule.get("category", [])
+        if isinstance(category_selectors, str):
+            category_selectors = [category_selectors]
+        category = self._extract_text_with_multiple_selectors(soup, category_selectors)
 
         # 获取字数
-        word_count_selector = self.book_rule.get("word_count", "")
-        word_count = self._extract_text(soup, word_count_selector)
+        word_count_selectors = self.book_rule.get("word_count", [])
+        if isinstance(word_count_selectors, str):
+            word_count_selectors = [word_count_selectors]
+        word_count = self._extract_text_with_multiple_selectors(soup, word_count_selectors)
 
         # 获取最后更新时间
-        update_time_selector = self.book_rule.get("update_time", "")
-        update_time = self._extract_text(soup, update_time_selector)
+        update_time_selectors = self.book_rule.get("update_time", [])
+        if isinstance(update_time_selectors, str):
+            update_time_selectors = [update_time_selectors]
+        update_time = self._extract_text_with_multiple_selectors(soup, update_time_selectors)
 
         # 获取目录URL
-        toc_url_selector = self.book_rule.get("toc_url", "")
-        toc_url = self._extract_attr(soup, toc_url_selector, "href")
+        toc_url_selectors = self.book_rule.get("toc_url", [])
+        if isinstance(toc_url_selectors, str):
+            toc_url_selectors = [toc_url_selectors]
+        toc_url = self._extract_attr_with_multiple_selectors(soup, toc_url_selectors, "href")
         if toc_url and not toc_url.startswith(("http://", "https://")):
             toc_url = self._build_full_url(toc_url, url)
 
@@ -198,6 +216,57 @@ class BookParser:
             source_id=self.source.id,
             source_name=self.source.rule.get("name", self.source.id),
         )
+
+    def _extract_text_with_multiple_selectors(self, soup: BeautifulSoup, selectors: list) -> str:
+        """尝试多个选择器提取文本内容
+
+        Args:
+            soup: BeautifulSoup对象
+            selectors: CSS选择器列表
+
+        Returns:
+            提取的文本内容
+        """
+        if not selectors:
+            return ""
+
+        for selector in selectors:
+            if not selector:
+                continue
+            
+            result = self._extract_text(soup, selector)
+            if result:
+                logger.debug(f"成功使用选择器 '{selector}' 提取文本: {result[:50]}...")
+                return result
+        
+        logger.debug(f"所有选择器都未能提取到文本: {selectors}")
+        return ""
+
+    def _extract_attr_with_multiple_selectors(self, soup: BeautifulSoup, selectors: list, attr: str) -> str:
+        """尝试多个选择器提取属性值
+
+        Args:
+            soup: BeautifulSoup对象
+            selectors: CSS选择器列表
+            attr: 属性名
+
+        Returns:
+            提取的属性值
+        """
+        if not selectors:
+            return ""
+
+        for selector in selectors:
+            if not selector:
+                continue
+            
+            result = self._extract_attr(soup, selector, attr)
+            if result:
+                logger.debug(f"成功使用选择器 '{selector}' 提取属性 {attr}: {result[:50]}...")
+                return result
+        
+        logger.debug(f"所有选择器都未能提取到属性 {attr}: {selectors}")
+        return ""
 
     def _extract_text(self, soup: BeautifulSoup, selector: str) -> str:
         """提取文本内容

@@ -116,9 +116,19 @@ class ChapterParser:
 
         soup = BeautifulSoup(html, "html.parser")
 
+        # 获取配置的内容选择器
+        configured_selectors = []
+        content_rule = self.chapter_rule.get("content", [])
+        
+        if isinstance(content_rule, str):
+            configured_selectors.extend([s.strip() for s in content_rule.split(",") if s.strip()])
+        elif isinstance(content_rule, list):
+            for item in content_rule:
+                if isinstance(item, str):
+                    configured_selectors.extend([s.strip() for s in item.split(",") if s.strip()])
+
         # 尝试多种内容选择器
-        content_selectors = [
-            self.chapter_rule.get("content", ""),
+        content_selectors = configured_selectors + [
             "#content",
             ".content",
             "#chapter-content",
@@ -504,7 +514,21 @@ class ChapterParser:
             章节内容
         """
         # 获取章节内容规则
-        content_selectors = self.chapter_rule.get("content", "").split(",")
+        content_rule = self.chapter_rule.get("content", [])
+        
+        # 处理不同格式的content配置
+        if isinstance(content_rule, str):
+            # 如果是字符串，按逗号分割
+            content_selectors = content_rule.split(",")
+        elif isinstance(content_rule, list):
+            # 如果是数组，展开所有选择器
+            content_selectors = []
+            for item in content_rule:
+                if isinstance(item, str):
+                    # 如果数组项是字符串，可能包含逗号分割的多个选择器
+                    content_selectors.extend([s.strip() for s in item.split(",") if s.strip()])
+        else:
+            content_selectors = []
 
         if not content_selectors:
             logger.warning("章节规则中缺少content选择器")
