@@ -105,11 +105,13 @@ class Crawler:
 
             # 初始化或更新进度跟踪
             if task_id:
-                progress_tracker.update_progress(task_id, 0, "开始下载", 0)
+                from app.utils.progress_tracker import progress_tracker
                 # 更新总章节数
                 progress = progress_tracker.get_progress(task_id)
                 if progress:
                     progress.total_chapters = len(toc)
+                    progress_tracker.update_progress(task_id, 0, "开始下载章节", 0)
+                    logger.info(f"更新任务 {task_id} 的总章节数为 {len(toc)}")
 
             # 3. 创建下载目录
             download_dir = await self._create_download_directory(book, format)
@@ -342,12 +344,16 @@ class Crawler:
                         # 更新进度
                         if task_id:
                             from app.utils.progress_tracker import progress_tracker
+                            # 使用实际下载的章节数量，而不是 len(chapters)
+                            current_completed = download_stats["downloaded"]
+                            current_failed = download_stats["failed"]
                             progress_tracker.update_progress(
                                 task_id,
-                                len(chapters),
+                                current_completed,
                                 chapter.title,
-                                len(self.failed_chapters),
+                                current_failed,
                             )
+                            logger.debug(f"进度更新: {current_completed}/{len(toc)} 章节完成")
                     else:
                         download_stats["failed"] += 1
                         self.failed_chapters.append(chapter_info)
@@ -364,12 +370,22 @@ class Crawler:
         tasks = [download_one(ch) for ch in toc]
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 简化失败章节重试
+        # 处理失败的章节（减少重试次数）
         if self.failed_chapters and len(self.failed_chapters) < len(toc) * 0.3:
             logger.info(f"重试失败的 {len(self.failed_chapters)} 个章节")
             retry_chapters = await self._retry_failed_chapters_simple(parser, temp_dir)
             chapters.extend(retry_chapters)
             download_stats["downloaded"] += len(retry_chapters)
+            
+            # 更新重试后的进度
+            if task_id and len(retry_chapters) > 0:
+                from app.utils.progress_tracker import progress_tracker
+                progress_tracker.update_progress(
+                    task_id,
+                    download_stats["downloaded"],
+                    f"重试完成，成功 {len(retry_chapters)} 章节",
+                    len(self.failed_chapters) - len(retry_chapters),
+                )
 
         # 从现有文件加载章节
         for safe_filename, file_path in existing_chapters.items():
@@ -386,6 +402,19 @@ class Crawler:
         # 输出性能统计
         end_time = time.time()
         download_time = end_time - start_time
+        
+        # 最终进度更新
+        if task_id:
+            from app.utils.progress_tracker import progress_tracker
+            final_completed = download_stats["downloaded"]
+            final_failed = download_stats["failed"]
+            progress_tracker.update_progress(
+                task_id,
+                final_completed,
+                "下载完成",
+                final_failed,
+            )
+            logger.info(f"最终进度: {final_completed}/{len(toc)} 章节完成，失败 {final_failed} 章节")
         
         logger.info(f"下载完成统计: 总章节={download_stats['total_chapters']}, "
                    f"下载={download_stats['downloaded']}, 跳过={download_stats['skipped']}, "
@@ -708,18 +737,41 @@ class Crawler:
                 logger.warning(f"关闭会话失败: {str(e)}")
         self.session_pool.clear()
 
-    def get_download_progress(self) -> Dict[str, Any]:
+    def get_download_progress(self, task_id: Optional[str] = None) -> Dict[str, Any]:
         """获取下载进度信息"""
-        progress = self.monitor.get_progress()
-        return {
-            "total_chapters": progress.total_chapters,
-            "completed_chapters": progress.completed_chapters,
-            "failed_chapters": progress.failed_chapters,
-            "progress_percentage": progress.progress_percentage,
-            "success_rate": progress.success_rate,
-            "elapsed_time": progress.elapsed_time,
-            "average_speed": progress.average_speed,
-        }
+        if task_id:
+            # 如果提供了 task_id，从 progress_tracker 获取进度
+            from app.utils.progress_tracker import progress_tracker
+            progress_info = progress_tracker.get_progress(task_id)
+            
+            if progress_info:
+                return progress_info.to_dict()
+            else:
+                # 如果进度跟踪器中没有信息，返回默认状态
+                return {
+                    "task_id": task_id,
+                    "status": "not_found",
+                    "progress_percentage": 0.0,
+                    "completed_chapters": 0,
+                    "total_chapters": 0,
+                    "failed_chapters": 0,
+                    "current_chapter": "",
+                    "elapsed_time": 0.0,
+                    "average_speed": 0.0,
+                    "error_message": "任务不存在或已过期",
+                }
+        else:
+            # 如果没有提供 task_id，使用原有的 monitor 方式（兼容性）
+            progress = self.monitor.get_progress()
+            return {
+                "total_chapters": progress.total_chapters,
+                "completed_chapters": progress.completed_chapters,
+                "failed_chapters": progress.failed_chapters,
+                "progress_percentage": progress.progress_percentage,
+                "success_rate": progress.success_rate,
+                "elapsed_time": progress.elapsed_time,
+                "average_speed": progress.average_speed,
+            }
 
     def _clean_chapter_title(self, title: str) -> str:
         """清理章节标题，移除冗余信息"""
