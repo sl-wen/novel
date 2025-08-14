@@ -387,6 +387,7 @@ class NovelService:
         source_id: int,
         format: str = "txt",
         task_id: Optional[str] = None,
+        format_options: Optional[Dict[str, Any]] = None,
     ) -> str:
         """下载小说
 
@@ -419,7 +420,7 @@ class NovelService:
             # 覆盖下载相关配置到 crawler
             crawler.download_config = download_config
 
-            return await crawler.download(url, source_id, format, task_id)
+            return await crawler.download(url, source_id, format, task_id, format_options)
 
         except Exception as e:
             logger.error(f"优化下载失败: {str(e)}")
