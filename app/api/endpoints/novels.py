@@ -215,6 +215,9 @@ async def download_novel(
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
     format: str = Query("txt", description="下载格式，支持txt、epub"),
+    addChapterNumbers: bool = Query(None, description="是否添加章节序号（第X章），默认自动检测"),
+    chapterPrefix: str = Query("第", description="章节序号前缀，默认'第'"),
+    chapterSuffix: str = Query("章", description="章节序号后缀，默认'章'"),
 ):
     """
     小说下载API
@@ -245,9 +248,18 @@ async def download_novel(
         ):
             logger.info(f"开始下载，URL：{url}，书源ID：{sourceId}，格式：{format}")
 
+            # 准备章节格式化选项
+            format_options = {}
+            if addChapterNumbers is not None:
+                format_options["add_numbers"] = addChapterNumbers
+            if chapterPrefix:
+                format_options["prefix"] = chapterPrefix
+            if chapterSuffix:
+                format_options["suffix"] = chapterSuffix
+
             # 使用下载服务
             file_path = await novel_service.download(
-                url, sourceId, format, task_id
+                url, sourceId, format, task_id, format_options
             )
 
             if not file_path or not os.path.exists(file_path):
@@ -446,6 +458,9 @@ async def start_download(
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
     format: str = Query("txt", description="下载格式，支持txt、epub"),
+    addChapterNumbers: bool = Query(None, description="是否添加章节序号（第X章），默认自动检测"),
+    chapterPrefix: str = Query("第", description="章节序号前缀，默认'第'"),
+    chapterSuffix: str = Query("章", description="章节序号后缀，默认'章'"),
 ):
     """
     启动异步下载任务，立即返回任务ID
@@ -467,7 +482,16 @@ async def start_download(
         
         async def run_download():
             try:
-                file_path = await novel_service.download(url, sourceId, format, task_id=task_id)
+                # 准备章节格式化选项
+                format_options = {}
+                if addChapterNumbers is not None:
+                    format_options["add_numbers"] = addChapterNumbers
+                if chapterPrefix:
+                    format_options["prefix"] = chapterPrefix
+                if chapterSuffix:
+                    format_options["suffix"] = chapterSuffix
+                
+                file_path = await novel_service.download(url, sourceId, format, task_id=task_id, format_options=format_options)
                 if file_path:
                     progress_tracker.set_file_path(task_id, file_path)
                     progress_tracker.complete_task(task_id, True)
