@@ -427,9 +427,10 @@ class ChapterParser:
                     if re.search(pattern, line, flags=re.IGNORECASE):
                         drop = True
                         break
-            # 顶部冗余章节抬头（内容内自带），我们已在输出时添加章节标题，这里移除前若干行中的抬头
-            if not drop and non_empty_seen < 10 and chapter_header_regex.search(line):
-                drop = True
+            # 顶部冗余章节抬头处理：只移除与当前章节标题完全相同的行，避免误删
+            # 注释掉过于激进的清理逻辑，保留章节标题
+            # if not drop and non_empty_seen < 10 and chapter_header_regex.search(line):
+            #     drop = True
             # 分隔符行（----- 或 ==== 等）
             if not drop and re.fullmatch(r"[\-=~_]{3,}", line.strip()):
                 drop = True
@@ -447,7 +448,7 @@ class ChapterParser:
         content = "\n".join([l for l in cleaned_lines if l.strip()])
 
         # 若检测到大量“第X章”标题，认为混入目录，进一步剔除这些行
-        if chapter_header_count >= 5:
+        if chapter_header_count >= 10:  # 提高阈值，避免误删正常的章节标题
             content = "\n".join(
                 [l for l in content.split("\n") if not chapter_header_regex.search(l)]
             )
