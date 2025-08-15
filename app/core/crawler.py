@@ -22,7 +22,6 @@ from app.parsers.toc_parser import TocParser
 from app.utils.content_validator import ChapterValidator
 from app.utils.download_monitor import DownloadMonitor
 from app.utils.file import FileUtils
-from app.utils.chapter_formatter import chapter_formatter
 
 logger = logging.getLogger(__name__)
 
@@ -124,8 +123,7 @@ class Crawler:
 
             logger.info(f"成功下载 {len(chapters)} 个章节")
 
-            # 5.1 格式化章节标题（为缺少序号的章节添加"第X章"格式）
-            chapters = await self._format_chapter_titles(chapters, book, source_id, format_options)
+            # 5.1 格式化章节标题（为缺少序号的章节添加"第X章"格式）废弃
 
             # 6. 生成最终文件
             file_path = await self._generate_final_file(
@@ -511,82 +509,6 @@ class Crawler:
         logger.info(f"TXT文件生成完成: {file_path}")
         return file_path
 
-    async def _format_chapter_titles(self, chapters: List[Chapter], book: Book, source_id: int, format_options: Optional[Dict[str, Any]] = None) -> List[Chapter]:
-        """格式化章节标题，为缺少序号的章节添加"第X章"格式
-        
-        Args:
-            chapters: 章节列表
-            book: 书籍信息
-            source_id: 书源ID
-            
-        Returns:
-            格式化后的章节列表
-        """
-        if not chapters:
-            return chapters
-        
-        logger.info(f"开始格式化章节标题，共 {len(chapters)} 章")
-        
-        try:
-            # 检查是否是鸟书网（特殊处理）
-            source = Source(source_id)
-            source_name = source.rule.get("name", "").lower()
-            is_bird_book = "鸟书" in source_name or "bird" in source_name
-            
-            # 转换为ChapterInfo列表以便使用格式化工具
-            chapter_infos = []
-            for chapter in chapters:
-                chapter_info = ChapterInfo(
-                    title=chapter.title,
-                    url=chapter.url,
-                    order=chapter.order,
-                    word_count=chapter.word_count,
-                    update_time=chapter.update_time,
-                    source_id=chapter.source_id,
-                    source_name=chapter.source_name
-                )
-                chapter_infos.append(chapter_info)
-            
-            # 获取格式化建议
-            suggested_options = chapter_formatter.suggest_formatting_options(chapter_infos)
-            
-            # 使用用户提供的选项，或者使用建议选项
-            final_options = suggested_options.copy()
-            if format_options:
-                final_options.update(format_options)
-            
-            # 对于鸟书网，强制添加章节序号（因为已知问题），除非用户明确指定不添加
-            if is_bird_book and format_options is None:
-                final_options["add_numbers"] = True
-                final_options["reason"] = "鸟书网章节缺少序号，自动添加"
-                logger.info("检测到鸟书网，将自动为章节添加序号")
-            elif is_bird_book and format_options and "add_numbers" not in format_options:
-                final_options["add_numbers"] = True
-                final_options["reason"] = "鸟书网章节缺少序号，自动添加"
-                logger.info("检测到鸟书网，将自动为章节添加序号")
-            
-            logger.info(f"章节格式化策略: {final_options.get('reason', '默认格式化')}")
-            
-            # 批量格式化章节
-            formatted_chapters = chapter_formatter.batch_format_for_download(chapters, final_options)
-            
-            # 记录格式化结果
-            formatted_count = 0
-            for orig, formatted in zip(chapters, formatted_chapters):
-                if orig.title != formatted.title:
-                    formatted_count += 1
-                    logger.debug(f"章节标题格式化: '{orig.title}' -> '{formatted.title}'")
-            
-            if formatted_count > 0:
-                logger.info(f"成功格式化 {formatted_count} 个章节标题")
-            else:
-                logger.info("章节标题无需格式化")
-            
-            return formatted_chapters
-            
-        except Exception as e:
-            logger.warning(f"章节标题格式化失败，使用原始标题: {str(e)}")
-            return chapters
 
     async def _generate_epub_file_async(
         self, book: Book, chapters: List[Chapter], download_dir: Path
