@@ -496,10 +496,11 @@ class Crawler:
                 # 写入章节内容
                 for chapter in chapters:
                     title = chapter.title
-                    f.write(f"{title}\n")
-                    f.write("-" * 30 + "\n")
+                    # 使用更标准的章节格式，提高读书软件兼容性
+                    # 在章节标题前后添加空行，并确保章节标题独占一行
+                    f.write(f"\n\n{title}\n\n")
                     f.write(chapter.content)
-                    f.write("\n\n")
+                    f.write("\n")
 
         # 在线程池中执行文件写入
         loop = asyncio.get_event_loop()
