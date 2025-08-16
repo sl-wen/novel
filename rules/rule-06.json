@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://quanben5.com/search.html/?keywords=%s&a=search.json&b=%s&c=book&callback=search",
+    "url": "https://quanben5.com/?c=book&a=search.json&callback=search&t={timestamp}&keywords={keywords}&b={encrypted_param}",
     "method": "get",
     "data": "{}",
     "list": ".pic_txt_list",
@@ -16,7 +16,14 @@
     "latest": "",
     "update": "",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "https://quanben5.com/",
+    "timeout": 15,
+    "dynamic_params": {
+      "timestamp": "当前时间戳",
+      "keywords": "搜索关键词",
+      "encrypted_param": "加密参数(需要动态生成)"
+    }
   },
   "book": {
     "name": [

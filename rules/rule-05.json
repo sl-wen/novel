@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.sososhu.com/?q=%s&site=xtxxs",
+    "url": "https://www.sososhu.com/?q={keywords}&site=xtxxs",
     "method": "get",
     "data": "{}",
     "list": "body > div.wrap > div > div > div",
@@ -16,7 +16,10 @@
     "latest": "",
     "update": "",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "https://www.tianxibook.com/",
+    "timeout": 15,
+    "keyword_param": "keywords"
   },
   "book": {
     "name": [

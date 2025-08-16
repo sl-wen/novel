@@ -1,13 +1,13 @@
 {
   "id": 17,
   "name": "八一中文网",
-  "url": "http://www.81zwwww.com/",
+  "url": "http://www.81zwwww.com",
   "enabled": true,
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "http://www.81zwwww.com/search/",
-    "method": "post",
+    "url": "http://www.81zwwww.com/search/?searchkey={keywords}",
+    "method": "get",
     "data": "{searchkey: %s, Submit: ''}",
     "list": ".mb20 > div > div",
     "name": ".commend-title > a",
@@ -16,7 +16,33 @@
     "latest": "",
     "update": "",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "http://www.81zwwww.com/",
+    "timeout": 15,
+    "keyword_param": "keywords",
+    "search_param": "searchkey",
+    "keyword_format": "{keywords}",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Accept-Encoding": "gzip, deflate",
+      "Connection": "keep-alive",
+      "Upgrade-Insecure-Requests": "1",
+      "Referer": "http://www.81zwwww.com/",
+      "Cache-Control": "max-age=0",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "same-origin",
+      "Sec-Fetch-User": "?1"
+    },
+    "anti_crawler": {
+      "enabled": true,
+      "headers_added": true,
+      "referer_required": true,
+      "user_agent_required": true
+    },
+    "protocol": "http_only"
   },
   "book": {
     "name": [
@@ -156,5 +182,21 @@
     "max_redirects": 5,
     "handle_404": "skip",
     "handle_timeout": "retry"
+  },
+  "alternative_domains": [
+    "http://81zwwww.com",
+    "http://www.81zwwww.com"
+  ],
+  "diagnosis_info": {
+    "last_diagnosis": "2025-08-15 23:24:47",
+    "dns_resolution": "success",
+    "ip_address": "154.19.88.186",
+    "http_port": "open",
+    "https_port": "closed",
+    "recommended_protocol": "http",
+    "working_domains": [
+      "www.81zwwww.com",
+      "81zwwww.com"
+    ]
   }
 }

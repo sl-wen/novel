@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "span.s2.wid > a",
+    "url": "http://www.mcxs.info/search.php",
     "method": "post",
     "data": "{name: %s}",
     "list": ".novelslist2 > ul > li",
@@ -16,7 +16,9 @@
     "latest": "span.s3.wid3 > a",
     "update": "span.s6.wid6",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "http://www.mcxs.info/",
+    "timeout": 15
   },
   "book": {
     "name": [

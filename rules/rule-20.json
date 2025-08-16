@@ -14,7 +14,9 @@
     "author": "span.s3 > a",
     "category": "span.s1",
     "latest_chapter": "span.s4 > a",
-    "update_time": "span.s5"
+    "update_time": "span.s5",
+    "baseUri": "https://www.wxsy.net/",
+    "timeout": 15
   },
   "book": {
     "url": "https://www.wxsy.net/novel/(.*?)/",

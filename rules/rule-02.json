@@ -6,8 +6,8 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "dd > h3 > a",
-    "method": "post",
+    "url": "https://www.shuhaige.net/search.php?keyword={keywords}",
+    "method": "get",
     "data": "{searchkey: %s, searchtype: all}",
     "list": "#sitembox > dl",
     "name": "dd > h3 > a",
@@ -16,7 +16,10 @@
     "latest": "dd:nth-child(5) > a",
     "update": "dd:nth-child(5) > span",
     "status": "dd:nth-child(3) > span:nth-child(2)",
-    "word_count": "dd:nth-child(3) > span:nth-child(4)"
+    "word_count": "dd:nth-child(3) > span:nth-child(4)",
+    "baseUri": "https://www.shuhaige.net/",
+    "timeout": 15,
+    "keyword_param": "keywords"
   },
   "book": {
     "name": [

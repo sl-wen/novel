@@ -16,7 +16,9 @@
     "latest": "span.s3",
     "update": "span.s5",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "https://www.22biqu.com/",
+    "timeout": 15
   },
   "book": {
     "name": [

@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "http://www.yeudusk.com/modules/article/search.php?q=%s",
+    "url": "http://www.yeudusk.com/modules/article/search.php?q={keywords}",
     "method": "get",
     "data": "{}",
     "list": "#jieqi_page_contents > div > div:nth-child(2)",
@@ -16,7 +16,10 @@
     "latest": "div:nth-child(4) > span:nth-child(2) > a",
     "update": "div:nth-child(4) > span:nth-child(4)",
     "status": "span:nth-child(8)",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "http://www.yeudusk.com/",
+    "timeout": 15,
+    "keyword_param": "keywords"
   },
   "book": {
     "name": [

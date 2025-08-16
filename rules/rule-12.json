@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.deqixs.com/tag/?key=%s",
+    "url": "https://www.deqixs.com/tag/?key={keywords}",
     "method": "get",
     "data": "{}",
     "list": ".container > div",
@@ -16,7 +16,10 @@
     "latest": "div > ul > li:nth-child(1) > a",
     "update": "div > ul > li:nth-child(1) > i",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "https://www.deqixs.com/",
+    "timeout": 15,
+    "keyword_param": "keywords"
   },
   "book": {
     "name": [

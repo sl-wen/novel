@@ -16,7 +16,9 @@
     "latest": "li.three > span > a",
     "update": "li.five",
     "status": "li.six",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "http://www.ujxsw.org/",
+    "timeout": 15
   },
   "book": {
     "name": [

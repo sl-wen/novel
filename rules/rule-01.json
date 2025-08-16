@@ -6,8 +6,8 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "td.even > a",
-    "method": "post",
+    "url": "http://www.xbiqugu.la/search.php?keyword={keywords}",
+    "method": "get",
     "data": "{searchkey: %s}",
     "list": "#checkform > table > tbody > tr",
     "name": "td.even > a",
@@ -16,7 +16,10 @@
     "latest": "td.odd > a",
     "update": "td:nth-of-type(4)",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "http://www.xbiqugu.la/",
+    "timeout": 15,
+    "keyword_param": "keywords"
   },
   "book": {
     "name": [

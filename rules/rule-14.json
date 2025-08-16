@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.luegeng.com/search/?searchkey=%s",
+    "url": "https://www.luegeng.com/search/?searchkey={keywords}",
     "method": "get",
     "data": "{}",
     "list": ".content > dl",
@@ -16,7 +16,10 @@
     "latest": "",
     "update": "",
     "status": "dd:nth-child(4) > span:nth-child(2)",
-    "word_count": "dd:nth-child(4) > span:nth-child(3)"
+    "word_count": "dd:nth-child(4) > span:nth-child(3)",
+    "baseUri": "https://www.luegeng.com/",
+    "timeout": 15,
+    "keyword_param": "keywords"
   },
   "book": {
     "name": [

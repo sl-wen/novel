@@ -6,8 +6,8 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "http://www.xbiquzw.net/modules/article/search.php",
-    "method": "post",
+    "url": "http://www.xbiquzw.net/search.php?keyword={keywords}",
+    "method": "get",
     "data": "{searchkey: %s}",
     "list": "#wrapper > table > tbody > tr",
     "name": "td:nth-child(1) > a",
@@ -16,7 +16,10 @@
     "latest": "td:nth-child(2)",
     "update": "td:nth-child(5)",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "http://www.xbiquzw.net/",
+    "timeout": 15,
+    "keyword_param": "keywords"
   },
   "book": {
     "name": [

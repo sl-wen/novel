@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.0xs.net/search.html?kw=%s",
+    "url": "https://www.0xs.net/search.html?kw={keywords}",
     "method": "get",
     "data": "{}",
     "list": ".result_list > ul > li > .book",
@@ -16,7 +16,10 @@
     "latest": "",
     "update": "",
     "status": ".serial",
-    "word_count": ".count"
+    "word_count": ".count",
+    "baseUri": "https://www.0xs.net/",
+    "timeout": 15,
+    "keyword_param": "keywords"
   },
   "book": {
     "name": [

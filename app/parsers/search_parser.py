@@ -374,9 +374,23 @@ class SearchParser:
             return ""
 
         try:
-            target = element.select_one(selector)
-            if target:
-                return target.get_text(strip=True)
+            # 获取所有匹配的元素
+            targets = element.select(selector)
+            if targets:
+                # 智能选择有文本内容的元素
+                for i, target in enumerate(targets):
+                    text = target.get_text(strip=True)
+                    if text:
+                        # 如果文本长度合理（不是简介），返回这个元素
+                        if len(text) <= 50:  # 避免选择过长的简介
+                            logger.debug(f"选择第{i+1}个元素，文本: {text[:30]}")
+                            return text
+                
+                # 如果所有元素都没有合适的文本，返回第一个非空文本
+                for target in targets:
+                    text = target.get_text(strip=True)
+                    if text:
+                        return text
         except Exception as e:
             logger.debug(f"提取文本失败: {selector}, 错误: {str(e)}")
 
@@ -397,9 +411,25 @@ class SearchParser:
             return ""
 
         try:
-            target = element.select_one(selector)
-            if target:
-                return target.get(attr, "")
+            # 获取所有匹配的元素
+            targets = element.select(selector)
+            if targets:
+                # 智能选择有文本内容的元素对应的属性
+                for i, target in enumerate(targets):
+                    text = target.get_text(strip=True)
+                    if text:
+                        # 如果文本长度合理，返回这个元素的属性
+                        if len(text) <= 50:  # 避免选择过长的简介
+                            attr_value = target.get(attr, "")
+                            if attr_value:
+                                logger.debug(f"选择第{i+1}个元素的{attr}属性: {attr_value}")
+                                return attr_value
+                
+                # 如果所有元素都没有合适的文本，返回第一个元素的属性
+                for target in targets:
+                    attr_value = target.get(attr, "")
+                    if attr_value:
+                        return attr_value
         except Exception as e:
             logger.debug(f"提取属性失败: {selector}.{attr}, 错误: {str(e)}")
 

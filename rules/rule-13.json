@@ -6,8 +6,8 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.xbqg06.com/search/",
-    "method": "post",
+    "url": "https://www.xbqg06.com/search.php?keyword={keywords}",
+    "method": "get",
     "data": "{type: articlename, searchkey: %s}",
     "list": ".container > div > div > ul > li",
     "name": "span.s2 > a",
@@ -16,7 +16,10 @@
     "latest": "span.s3 > a",
     "update": "span.s5",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "https://www.xbqg06.com/",
+    "timeout": 15,
+    "keyword_param": "keywords"
   },
   "book": {
     "name": [

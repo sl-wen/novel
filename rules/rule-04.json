@@ -16,7 +16,9 @@
     "latest": "div.bookinfo > div.update > a",
     "update": "",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "http://www.99xs.info/",
+    "timeout": 15
   },
   "book": {
     "name": [

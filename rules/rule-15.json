@@ -6,8 +6,8 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.96dushu.com/modules/article/search.php",
-    "method": "post",
+    "url": "https://www.96dushu.com/search.php?keyword={keywords}",
+    "method": "get",
     "data": "{searchkey: %s}",
     "list": "#nr",
     "name": "dd:nth-child(2) > h3 > a",
@@ -16,7 +16,10 @@
     "latest": "dd:nth-child(5) > a",
     "update": "dd:nth-child(2) > h3 > span",
     "status": "dd:nth-child(3) > span:nth-child(2)",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "https://www.96dushu.com/",
+    "timeout": 15,
+    "keyword_param": "keywords"
   },
   "book": {
     "name": [

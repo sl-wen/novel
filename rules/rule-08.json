@@ -6,17 +6,61 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.dxmwx.org/list/topall_%s.html",
+    "url": "https://www.dxmwx.org/list/%s.html",
     "method": "get",
     "data": "{}",
-    "list": "#ListContents > div",
-    "name": ".margin0h5 > a.fonttext",
-    "author": ".margin0h5 > a:nth-child(2)",
+    "list": "div[style*='margin: 10px']",
+    "name": "a[href*='/book/']",
+    "author": "a[href*='/list/']",
     "category": "",
-    "latest": ".right_wid > div:nth-child(4) > a",
-    "update": ".right_wid > div:nth-child(4) > span",
+    "latest": "a[href='javascript:void(0)']",
+    "update": "span.lefth5",
     "status": "",
-    "word_count": ""
+    "word_count": "",
+    "baseUri": "https://www.dxmwx.org",
+    "timeout": 15,
+    "keyword_param": "keywords",
+    "search_param": "keywords",
+    "keyword_format": "%s",
+    "url_format": "list/%s.html",
+    "url_attr": "href",
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Connection": "keep-alive",
+      "Upgrade-Insecure-Requests": "1",
+      "Referer": "https://www.dxmwx.org/"
+    },
+    "simple_name_selector_fix_info": {
+      "fixed_at": "2025-08-16 00:35:14",
+      "version": "simple_name_selector_fix",
+      "problem": "复杂的CSS选择器可能不按预期工作",
+      "fix": "使用最简单的书籍链接选择器",
+      "debug_results": {
+        "list_elements_found": 20,
+        "name_elements_per_list": 4,
+        "first_name_empty": true,
+        "second_name_valid": true,
+        "valid_results_per_list": 3,
+        "books_found": [
+          "斗破苍穹",
+          "斗破之魂族妖女",
+          "斗破之我能穿越武动"
+        ]
+      },
+      "html_structure": "基于深入调试结果分析",
+      "list_selector": "div[style*='margin: 10px'] - 正确的书籍条目容器",
+      "name_selector": "a[href*='/book/'] - 最简单的书籍链接选择器",
+      "author_selector": "a[href*='/list/'] - 作者链接",
+      "latest_selector": "a[href='javascript:void(0)'] - 最新章节",
+      "update_selector": "span.lefth5 - 更新时间",
+      "url_attr": "href - 从href属性获取URL",
+      "base_uri": "https://www.dxmwx.org - 基础URL",
+      "anti_crawler": "添加了完整的浏览器请求头",
+      "reason": "使用最简单的选择器，避免复杂的CSS伪类问题"
+    }
   },
   "book": {
     "name": [
