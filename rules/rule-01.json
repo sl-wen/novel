@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "http://www.xbiqugu.la/search.php?keyword={keywords}",
+    "url": "http://www.xbiqugu.la/search.php?keyword=%s",
     "method": "get",
     "data": "{searchkey: %s}",
     "list": "#checkform > table > tbody > tr",

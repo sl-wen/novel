@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.xbqg06.com/search.php?keyword={keywords}",
+    "url": "https://www.xbqg06.com/search.php?keyword=%s",
     "method": "get",
     "data": "{type: articlename, searchkey: %s}",
     "list": ".container > div > div > ul > li",

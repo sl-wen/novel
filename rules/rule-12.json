@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.deqixs.com/tag/?key={keywords}",
+    "url": "https://www.deqixs.com/tag/?key=%s",
     "method": "get",
     "data": "{}",
     "list": ".container > div",

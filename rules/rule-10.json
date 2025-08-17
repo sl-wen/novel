@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "http://www.xbiquzw.net/search.php?keyword={keywords}",
+    "url": "http://www.xbiquzw.net/search.php?keyword=%s",
     "method": "get",
     "data": "{searchkey: %s}",
     "list": "#wrapper > table > tbody > tr",

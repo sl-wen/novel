@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.sudugu.com/i/sor.aspx?key={keywords}",
+    "url": "https://www.sudugu.com/i/sor.aspx?key=%s",
     "method": "get",
     "data": "{}",
     "list": ".container > div",

@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.0xs.net/search.html?kw={keywords}",
+    "url": "https://www.0xs.net/search.html?kw=%s",
     "method": "get",
     "data": "{}",
     "list": ".result_list > ul > li > .book",

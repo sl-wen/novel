@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.sososhu.com/?q={keywords}&site=xtxxs",
+    "url": "https://www.sososhu.com/?q=%s&site=xtxxs",
     "method": "get",
     "data": "{}",
     "list": "body > div.wrap > div > div > div",

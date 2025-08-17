@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.luegeng.com/search/?searchkey={keywords}",
+    "url": "https://www.luegeng.com/search/?searchkey=%s",
     "method": "get",
     "data": "{}",
     "list": ".content > dl",

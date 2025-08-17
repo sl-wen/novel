@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.96dushu.com/search.php?keyword={keywords}",
+    "url": "https://www.96dushu.com/search.php?keyword=%s",
     "method": "get",
     "data": "{searchkey: %s}",
     "list": "#nr",

@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://www.shuhaige.net/search.php?keyword={keywords}",
+    "url": "https://www.shuhaige.net/search.php?keyword=%s",
     "method": "get",
     "data": "{searchkey: %s, searchtype: all}",
     "list": "#sitembox > dl",

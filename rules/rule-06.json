@@ -6,7 +6,7 @@
   "type": "html",
   "language": "zh_CN",
   "search": {
-    "url": "https://quanben5.com/?c=book&a=search.json&callback=search&t={timestamp}&keywords={keywords}&b={encrypted_param}",
+    "url": "https://quanben5.com/?c=book&a=search.json&callback=search&t={timestamp}&keywords=%s&b={encrypted_param}",
     "method": "get",
     "data": "{}",
     "list": ".pic_txt_list",
