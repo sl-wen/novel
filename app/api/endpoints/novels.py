@@ -596,10 +596,7 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                 content={"code": 404, "message": "任务不存在", "data": None},
             )
 
-        # 未完成直接返回状态
-        if progress.status not in [progress.status.COMPLETED, progress.status.FAILED]:
-            return {"code": 200, "message": "running", "data": progress.to_dict()}
-
+        # 失败直接返回错误
         if progress.status == progress.status.FAILED:
             return JSONResponse(
                 status_code=500,
@@ -610,29 +607,31 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                 },
             )
 
-        # 如果任务已完成(COMPLETED状态)，即使进度不是精确的100%也应该返回文件
-        # 因为有时候由于浮点数精度问题，进度可能是99.99或100.01
-        if progress.status == progress.status.COMPLETED:
-            # 任务已完成，继续返回文件
-            logger.info(
-                f"任务已完成，进度: {progress.progress_percentage}%，准备返回文件"
-            )
-        else:
-            # 任务未完成，检查进度
-            if progress.progress_percentage < 100.0:
-                logger.warning(
-                    f"任务状态为{progress.status.value}但进度未达到100%: {progress.progress_percentage}%"
-                )
-                return JSONResponse(
-                    status_code=200,
-                    content={
-                        "code": 200,
-                        "message": "running",
-                        "data": progress.to_dict(),
-                    },
-                )
-
         file_path = progress.file_path
+
+        # 允许在状态仍为 RUNNING 但进度达到 100% 且文件已生成时直接返回文件
+        ready_to_stream = False
+        if file_path and os.path.exists(file_path):
+            try:
+                # 条件1：显式完成
+                if progress.status == progress.status.COMPLETED:
+                    ready_to_stream = True
+                # 条件2：进度达到或超过100%
+                elif progress.progress_percentage >= 100.0:
+                    ready_to_stream = True
+                # 条件3：章节数达到总数（避免浮点精度问题）
+                elif (
+                    progress.total_chapters > 0
+                    and progress.completed_chapters >= progress.total_chapters
+                ):
+                    ready_to_stream = True
+            except Exception:
+                ready_to_stream = False
+
+        # 未完成且未达到就绪条件，返回状态
+        if progress.status not in [progress.status.COMPLETED, progress.status.FAILED] and not ready_to_stream:
+            return {"code": 200, "message": "running", "data": progress.to_dict()}
+
         if not file_path:
             return JSONResponse(
                 status_code=500,
@@ -880,3 +879,4 @@ async def health_check():
             "message": f"健康检查失败: {str(e)}",
             "data": {"status": "error", "health_score": 0, "timestamp": time.time()},
         }
+
