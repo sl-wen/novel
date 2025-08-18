@@ -1,7 +1,8 @@
+import json
 import logging
 import os
 import time
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -21,6 +22,40 @@ router = APIRouter(prefix="/optimized", tags=["novels"])
 
 # 创建服务实例
 novel_service = NovelService()
+
+
+def safe_json_response(status_code: int, content: Dict[str, Any]) -> JSONResponse:
+    """
+    安全地创建JSON响应，确保正确的编码和序列化
+    
+    Args:
+        status_code: HTTP状态码
+        content: 响应内容字典
+    
+    Returns:
+        JSONResponse对象
+    """
+    try:
+        # 确保content可以被正确序列化
+        json_str = json.dumps(content, ensure_ascii=False, indent=None)
+        
+        return JSONResponse(
+            status_code=status_code,
+            content=json.loads(json_str),  # 重新解析以确保格式正确
+            headers={"Content-Type": "application/json; charset=utf-8"}
+        )
+    except (TypeError, ValueError) as e:
+        logger.error(f"JSON序列化失败: {str(e)}, content: {content}")
+        # 返回错误响应
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": 500,
+                "message": f"响应序列化失败: {str(e)}",
+                "data": None
+            },
+            headers={"Content-Type": "application/json; charset=utf-8"}
+        )
 
 
 @router.get("/search", response_model=SearchResponse)
@@ -531,25 +566,28 @@ async def get_download_progress(
         
         progress = progress_tracker.get_progress(task_id)
         if not progress:
-            return JSONResponse(
+            return safe_json_response(
                 status_code=404,
                 content={
                     "code": 404,
                     "message": f"任务不存在: {task_id}",
                     "data": None,
-                },
+                }
             )
         
-        return {"code": 200, "message": "success", "data": progress.to_dict()}
+        return safe_json_response(
+            status_code=200,
+            content={"code": 200, "message": "success", "data": progress.to_dict()}
+        )
     except Exception as e:
         logger.error(f"获取下载进度失败: {str(e)}")
-        return JSONResponse(
+        return safe_json_response(
             status_code=500,
             content={
                 "code": 500,
                 "message": f"获取下载进度失败: {str(e)}",
                 "data": None,
-            },
+            }
         )
 
 
@@ -574,23 +612,44 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         
         progress = progress_tracker.get_progress(task_id)
         if not progress:
-            return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
+            return safe_json_response(
+                status_code=404,
+                content={"code": 404, "message": "任务不存在", "data": None}
+            )
         
         # 未完成直接返回状态
         if progress.status not in [progress.status.COMPLETED, progress.status.FAILED]:
-            return {"code": 200, "message": "running", "data": progress.to_dict()}
+            return safe_json_response(
+                status_code=200,
+                content={"code": 200, "message": "running", "data": progress.to_dict()}
+            )
         
         if progress.status == progress.status.FAILED:
-            return JSONResponse(status_code=500, content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()})
+            return safe_json_response(
+                status_code=500,
+                content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()}
+            )
         
-        # 确保任务已完成且进度达到100%
-        if progress.progress_percentage < 100.0:
-            logger.warning(f"任务状态为完成但进度未达到100%: {progress.progress_percentage}%")
-            return {"code": 200, "message": "running", "data": progress.to_dict()}
+        # 如果任务已完成(COMPLETED状态)，即使进度不是精确的100%也应该返回文件
+        # 因为有时候由于浮点数精度问题，进度可能是99.99或100.01
+        if progress.status == progress.status.COMPLETED:
+            # 任务已完成，继续返回文件
+            logger.info(f"任务已完成，进度: {progress.progress_percentage}%，准备返回文件")
+        else:
+            # 任务未完成，检查进度
+            if progress.progress_percentage < 100.0:
+                logger.warning(f"任务状态为{progress.status.value}但进度未达到100%: {progress.progress_percentage}%")
+                return safe_json_response(
+                    status_code=200,
+                    content={"code": 200, "message": "running", "data": progress.to_dict()}
+                )
         
         file_path = progress.file_path
         if not file_path:
-            return JSONResponse(status_code=500, content={"code": 500, "message": "文件路径未设置", "data": progress.to_dict()})
+            return safe_json_response(
+                status_code=500,
+                content={"code": 500, "message": "文件路径未设置", "data": progress.to_dict()}
+            )
         
         # 文件就绪检查：确保文件存在且完全写入完成
         async def is_file_ready(file_path: str, max_retries: int = 20, retry_delay: float = 0.5) -> bool:
@@ -709,7 +768,10 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         
         # 执行文件就绪检查
         if not await is_file_ready(file_path):
-            return JSONResponse(status_code=500, content={"code": 500, "message": "文件不存在或尚未生成完成", "data": progress.to_dict()})
+            return safe_json_response(
+                status_code=500,
+                content={"code": 500, "message": "文件不存在或尚未生成完成", "data": progress.to_dict()}
+            )
         
         file_obj = Path(file_path)
         filename = file_obj.name
@@ -735,7 +797,10 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         )
     except Exception as e:
         logger.error(f"获取下载结果失败: {str(e)}")
-        return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
+        return safe_json_response(
+            status_code=500,
+            content={"code": 500, "message": str(e), "data": None}
+        )
 
 
 @router.get("/health")
