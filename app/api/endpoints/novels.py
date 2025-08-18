@@ -57,9 +57,7 @@ async def search_novels(
             logger.info(f"开始搜索，关键词：{keyword}，maxResults={maxResults}")
 
             # 使用搜索服务
-            results = await novel_service.search(
-                keyword, max_results=maxResults
-            )
+            results = await novel_service.search(keyword, max_results=maxResults)
 
             end_time = time.time()
             duration_ms = (end_time - start_time) * 1000
@@ -215,7 +213,9 @@ async def download_novel(
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
     format: str = Query("txt", description="下载格式，支持txt、epub"),
-    addChapterNumbers: bool = Query(None, description="是否添加章节序号（第X章），默认自动检测"),
+    addChapterNumbers: bool = Query(
+        None, description="是否添加章节序号（第X章），默认自动检测"
+    ),
     chapterPrefix: str = Query("第", description="章节序号前缀，默认'第'"),
     chapterSuffix: str = Query("章", description="章节序号后缀，默认'章'"),
 ):
@@ -458,13 +458,15 @@ async def start_download(
     url: str = Query(..., description="小说详情页URL"),
     sourceId: int = Query(settings.DEFAULT_SOURCE_ID, description="书源ID"),
     format: str = Query("txt", description="下载格式，支持txt、epub"),
-    addChapterNumbers: bool = Query(None, description="是否添加章节序号（第X章），默认自动检测"),
+    addChapterNumbers: bool = Query(
+        None, description="是否添加章节序号（第X章），默认自动检测"
+    ),
     chapterPrefix: str = Query("第", description="章节序号前缀，默认'第'"),
     chapterSuffix: str = Query("章", description="章节序号后缀，默认'章'"),
 ):
     """
     启动异步下载任务，立即返回任务ID
-    
+
     特性:
     - 任务管理：智能任务调度
     - 进度跟踪：实时下载进度
@@ -472,14 +474,17 @@ async def start_download(
     """
     try:
         import uuid
+
         from app.utils.progress_tracker import progress_tracker
-        
+
         # 创建任务
         task_id = str(uuid.uuid4())
         progress_tracker.create_task(total_chapters=0, task_id=task_id)
         progress_tracker.start_task(task_id)
-        logger.info(f"启动下载任务: {task_id} ({url}, source={sourceId}, format={format})")
-        
+        logger.info(
+            f"启动下载任务: {task_id} ({url}, source={sourceId}, format={format})"
+        )
+
         async def run_download():
             try:
                 # 准备章节格式化选项
@@ -490,8 +495,14 @@ async def start_download(
                     format_options["prefix"] = chapterPrefix
                 if chapterSuffix:
                     format_options["suffix"] = chapterSuffix
-                
-                file_path = await novel_service.download(url, sourceId, format, task_id=task_id, format_options=format_options)
+
+                file_path = await novel_service.download(
+                    url,
+                    sourceId,
+                    format,
+                    task_id=task_id,
+                    format_options=format_options,
+                )
                 if file_path:
                     progress_tracker.set_file_path(task_id, file_path)
                     progress_tracker.complete_task(task_id, True)
@@ -500,25 +511,29 @@ async def start_download(
             except Exception as e:
                 logger.error(f"后台下载任务失败: {str(e)}")
                 progress_tracker.complete_task(task_id, False, str(e))
-        
+
         # 后台执行
         import asyncio
+
         asyncio.create_task(run_download())
-        
-        return JSONResponse(status_code=202, content={"code": 202, "message": "accepted", "data": {"task_id": task_id}})
+
+        return JSONResponse(
+            status_code=202,
+            content={"code": 202, "message": "accepted", "data": {"task_id": task_id}},
+        )
     except Exception as e:
         logger.error(f"启动下载任务失败: {str(e)}")
-        return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
+        return JSONResponse(
+            status_code=500, content={"code": 500, "message": str(e), "data": None}
+        )
 
 
 @router.get("/download/progress")
 @monitor_performance("download_progress")
-async def get_download_progress(
-    task_id: str = Query(..., description="下载任务ID")
-):
+async def get_download_progress(task_id: str = Query(..., description="下载任务ID")):
     """
     获取下载进度
-    
+
     特性:
     - 详细进度：章节级别的进度信息
     - 性能指标：下载速度和质量统计
@@ -526,9 +541,9 @@ async def get_download_progress(
     """
     try:
         logger.info(f"获取下载进度，任务ID：{task_id}")
-        
+
         from app.utils.progress_tracker import progress_tracker
-        
+
         progress = progress_tracker.get_progress(task_id)
         if not progress:
             return JSONResponse(
@@ -539,7 +554,7 @@ async def get_download_progress(
                     "data": None,
                 },
             )
-        
+
         return {"code": 200, "message": "success", "data": progress.to_dict()}
     except Exception as e:
         logger.error(f"获取下载进度失败: {str(e)}")
@@ -558,7 +573,7 @@ async def get_download_progress(
 async def get_download_result(task_id: str = Query(..., description="下载任务ID")):
     """
     获取已完成任务的文件（若未完成则返回状态）
-    
+
     特性:
     - 流式传输：高效的文件传输
     - 智能缓存：避免重复传输
@@ -566,110 +581,162 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
     - 文件就绪检查：确保文件完全生成后再返回
     """
     try:
-        from app.utils.progress_tracker import progress_tracker
-        from fastapi.responses import StreamingResponse
+        import asyncio
         import urllib.parse
         from pathlib import Path
-        import asyncio
-        
+
+        from fastapi.responses import StreamingResponse
+
+        from app.utils.progress_tracker import progress_tracker
+
         progress = progress_tracker.get_progress(task_id)
         if not progress:
-            return JSONResponse(status_code=404, content={"code": 404, "message": "任务不存在", "data": None})
-        
+            return JSONResponse(
+                status_code=404,
+                content={"code": 404, "message": "任务不存在", "data": None},
+            )
+
         # 未完成直接返回状态
         if progress.status not in [progress.status.COMPLETED, progress.status.FAILED]:
             return {"code": 200, "message": "running", "data": progress.to_dict()}
-        
+
         if progress.status == progress.status.FAILED:
-            return JSONResponse(status_code=500, content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()})
-        
-        # 确保任务已完成且进度达到100%
-        if progress.progress_percentage < 100.0:
-            logger.warning(f"任务状态为完成但进度未达到100%: {progress.progress_percentage}%")
-            return {"code": 200, "message": "running", "data": progress.to_dict()}
-        
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "code": 500,
+                    "message": progress.error_message or "任务失败",
+                    "data": progress.to_dict(),
+                },
+            )
+
+        # 如果任务已完成(COMPLETED状态)，即使进度不是精确的100%也应该返回文件
+        # 因为有时候由于浮点数精度问题，进度可能是99.99或100.01
+        if progress.status == progress.status.COMPLETED:
+            # 任务已完成，继续返回文件
+            logger.info(
+                f"任务已完成，进度: {progress.progress_percentage}%，准备返回文件"
+            )
+        else:
+            # 任务未完成，检查进度
+            if progress.progress_percentage < 100.0:
+                logger.warning(
+                    f"任务状态为{progress.status.value}但进度未达到100%: {progress.progress_percentage}%"
+                )
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "code": 200,
+                        "message": "running",
+                        "data": progress.to_dict(),
+                    },
+                )
+
         file_path = progress.file_path
         if not file_path:
-            return JSONResponse(status_code=500, content={"code": 500, "message": "文件路径未设置", "data": progress.to_dict()})
-        
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "code": 500,
+                    "message": "文件路径未设置",
+                    "data": progress.to_dict(),
+                },
+            )
+
         # 文件就绪检查：确保文件存在且完全写入完成
-        async def is_file_ready(file_path: str, max_retries: int = 20, retry_delay: float = 0.5) -> bool:
+        async def is_file_ready(
+            file_path: str, max_retries: int = 20, retry_delay: float = 0.5
+        ) -> bool:
             """检查文件是否已经完全写入完成"""
             # 对EPUB文件使用更多重试次数和更长延迟
-            if file_path.lower().endswith('.epub'):
+            if file_path.lower().endswith(".epub"):
                 max_retries = 25  # 进一步增加EPUB文件的重试次数
                 retry_delay = 0.8  # 增加延迟时间
-            
+
             logger.info(f"开始文件就绪检查: {file_path} (最大重试次数: {max_retries})")
-                
+
             for attempt in range(max_retries):
                 try:
                     if not os.path.exists(file_path):
                         if attempt < max_retries - 1:
-                            logger.warning(f"文件不存在 (尝试 {attempt + 1}/{max_retries}): {file_path}")
+                            logger.warning(
+                                f"文件不存在 (尝试 {attempt + 1}/{max_retries}): {file_path}"
+                            )
                             await asyncio.sleep(retry_delay)
                             continue
                         logger.error(f"文件最终不存在: {file_path}")
                         return False
-                    
+
                     # 检查文件是否可以正常读取且大小稳定
                     file_obj = Path(file_path)
                     initial_size = file_obj.stat().st_size
-                    
+
                     # 如果文件大小为0，说明还在写入中
                     if initial_size == 0:
                         if attempt < max_retries - 1:
-                            logger.warning(f"文件大小为0 (尝试 {attempt + 1}/{max_retries}): {file_path}")
+                            logger.warning(
+                                f"文件大小为0 (尝试 {attempt + 1}/{max_retries}): {file_path}"
+                            )
                             await asyncio.sleep(retry_delay)
                             continue
                         logger.error(f"文件大小始终为0: {file_path}")
                         return False
-                    
+
                     # 等待文件写入稳定 - 增加等待时间
-                    stability_wait = 0.8 if file_path.lower().endswith('.epub') else 0.3
+                    stability_wait = 0.8 if file_path.lower().endswith(".epub") else 0.3
                     await asyncio.sleep(stability_wait)
-                    
+
                     # 检查文件大小是否稳定
                     try:
                         final_size = file_obj.stat().st_size
                     except (FileNotFoundError, OSError) as e:
                         if attempt < max_retries - 1:
-                            logger.warning(f"文件状态检查失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                            logger.warning(
+                                f"文件状态检查失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}"
+                            )
                             await asyncio.sleep(retry_delay)
                             continue
                         logger.error(f"文件状态检查最终失败: {str(e)}")
                         return False
-                    
+
                     # 如果文件大小不稳定，继续等待
                     if initial_size != final_size:
                         if attempt < max_retries - 1:
-                            logger.warning(f"文件大小不稳定 (尝试 {attempt + 1}/{max_retries}): {initial_size} -> {final_size}")
+                            logger.warning(
+                                f"文件大小不稳定 (尝试 {attempt + 1}/{max_retries}): {initial_size} -> {final_size}"
+                            )
                             await asyncio.sleep(retry_delay)
                             continue
-                        logger.error(f"文件大小始终不稳定: {initial_size} -> {final_size}")
+                        logger.error(
+                            f"文件大小始终不稳定: {initial_size} -> {final_size}"
+                        )
                         return False
-                    
+
                     # 尝试打开和读取文件
                     try:
                         with open(file_path, "rb") as f:
                             # 对于EPUB文件，进行更详细的验证
-                            if file_path.lower().endswith('.epub'):
+                            if file_path.lower().endswith(".epub"):
                                 # 读取并验证EPUB文件头
                                 header = f.read(4)
-                                if header != b'PK\x03\x04':
+                                if header != b"PK\x03\x04":
                                     if attempt < max_retries - 1:
-                                        logger.warning(f"EPUB文件头验证失败 (尝试 {attempt + 1}/{max_retries}): {header}")
+                                        logger.warning(
+                                            f"EPUB文件头验证失败 (尝试 {attempt + 1}/{max_retries}): {header}"
+                                        )
                                         await asyncio.sleep(retry_delay)
                                         continue
                                     logger.error(f"EPUB文件头最终验证失败: {header}")
                                     return False
-                                
+
                                 # 尝试读取更多内容确保文件完整
                                 f.seek(0)
                                 content_sample = f.read(16384)  # 读取更多内容
                                 if len(content_sample) < 16384 and final_size > 16384:
                                     if attempt < max_retries - 1:
-                                        logger.warning(f"EPUB文件内容读取不完整 (尝试 {attempt + 1}/{max_retries})")
+                                        logger.warning(
+                                            f"EPUB文件内容读取不完整 (尝试 {attempt + 1}/{max_retries})"
+                                        )
                                         await asyncio.sleep(retry_delay)
                                         continue
                                     logger.error("EPUB文件内容读取最终不完整")
@@ -679,42 +746,57 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                                 content_sample = f.read(4096)
                                 if len(content_sample) == 0:
                                     if attempt < max_retries - 1:
-                                        logger.warning(f"TXT文件内容为空 (尝试 {attempt + 1}/{max_retries})")
+                                        logger.warning(
+                                            f"TXT文件内容为空 (尝试 {attempt + 1}/{max_retries})"
+                                        )
                                         await asyncio.sleep(retry_delay)
                                         continue
                                     logger.error("TXT文件内容为空")
                                     return False
-                        
-                        logger.info(f"文件就绪检查通过: {file_path} (大小: {final_size} 字节)")
+
+                        logger.info(
+                            f"文件就绪检查通过: {file_path} (大小: {final_size} 字节)"
+                        )
                         return True
-                        
+
                     except (IOError, OSError, PermissionError) as e:
                         if attempt < max_retries - 1:
-                            logger.warning(f"文件读取检查失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                            logger.warning(
+                                f"文件读取检查失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}"
+                            )
                             await asyncio.sleep(retry_delay)
                             continue
                         logger.error(f"文件读取检查最终失败: {str(e)}")
                         return False
-                        
+
                 except Exception as e:
                     if attempt < max_retries - 1:
-                        logger.warning(f"文件检查异常 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                        logger.warning(
+                            f"文件检查异常 (尝试 {attempt + 1}/{max_retries}): {str(e)}"
+                        )
                         await asyncio.sleep(retry_delay)
                         continue
                     logger.error(f"文件检查最终异常: {str(e)}")
                     return False
-            
+
             logger.error(f"文件就绪检查最终失败: {file_path}")
             return False
-        
+
         # 执行文件就绪检查
         if not await is_file_ready(file_path):
-            return JSONResponse(status_code=500, content={"code": 500, "message": "文件不存在或尚未生成完成", "data": progress.to_dict()})
-        
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "code": 500,
+                    "message": "文件不存在或尚未生成完成",
+                    "data": progress.to_dict(),
+                },
+            )
+
         file_obj = Path(file_path)
         filename = file_obj.name
         encoded_filename = urllib.parse.quote(filename, safe="")
-        
+
         def file_generator():
             with open(file_path, "rb") as f:
                 while True:
@@ -722,7 +804,7 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                     if not chunk:
                         break
                     yield chunk
-        
+
         return StreamingResponse(
             file_generator(),
             media_type="application/octet-stream",
@@ -735,7 +817,9 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         )
     except Exception as e:
         logger.error(f"获取下载结果失败: {str(e)}")
-        return JSONResponse(status_code=500, content={"code": 500, "message": str(e), "data": None})
+        return JSONResponse(
+            status_code=500, content={"code": 500, "message": str(e), "data": None}
+        )
 
 
 @router.get("/health")

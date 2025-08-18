@@ -66,9 +66,13 @@
     "name": [
       "meta[property=\"og:novel:book_name\"]",
       "meta[property=\"og:title\"]",
+      ".bookname > h1",
+      ".bookname h1",
+      ".reader-main > h1",
       "h1.book-title",
       "#info h1",
       ".book-name",
+      "h1",
       "title"
     ],
     "author": [

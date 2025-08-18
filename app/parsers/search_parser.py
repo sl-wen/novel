@@ -26,11 +26,27 @@ class SearchParser:
         self.timeout = source.rule.get("search", {}).get(
             "timeout", settings.DEFAULT_TIMEOUT
         )
+        self.search_rule = source.rule.get("search", {})
+        # 基础请求头
         self.headers = {
-            "User-Agent": settings.DEFAULT_HEADERS["User-Agent"],
+            "User-Agent": settings.DEFAULT_HEADERS.get("User-Agent", "Mozilla/5.0"),
             "Referer": source.rule.get("url", ""),
         }
-        self.search_rule = source.rule.get("search", {})
+        # 合并规则里为该书源定制的请求头（如 Accept/Accept-Language/Encoding 等防爬字段）
+        try:
+            rule_headers = self.search_rule.get("headers") or {}
+            if isinstance(rule_headers, dict):
+                # 不覆盖必要UA/Referer，其他按规则追加
+                for k, v in rule_headers.items():
+                    if not v:
+                        continue
+                    if k.lower() in ("user-agent", "referer"):
+                        # 若规则显式设置，则覆盖
+                        self.headers[k] = v
+                    else:
+                        self.headers[k] = v
+        except Exception:
+            pass
 
     async def parse(self, keyword: str) -> List[SearchResult]:
         """解析搜索结果
@@ -136,7 +152,7 @@ class SearchParser:
 
         # 替换关键词占位符
         url = url_template.replace("%s", keyword)
-        
+
         # 处理分页
         if "%d" in url:
             url = url.replace("%d", str(page))
@@ -191,17 +207,13 @@ class SearchParser:
                 use_dns_cache=True,
                 ttl_dns_cache=300,
             )
-            
+
             timeout = aiohttp.ClientTimeout(
-                total=self.timeout,
-                connect=10,
-                sock_read=120
+                total=self.timeout, connect=10, sock_read=120
             )
-            
+
             async with aiohttp.ClientSession(
-                timeout=timeout,
-                connector=connector,
-                headers=self.headers
+                timeout=timeout, connector=connector, headers=self.headers
             ) as session:
                 if method == "post":
                     async with session.post(url, data=data) as response:
@@ -264,13 +276,15 @@ class SearchParser:
             # 计算相关性得分
             for result in all_results:
                 result.score = self._calculate_relevance_score(result, keyword)
-            
+
             # 按得分降序排序
-            all_results.sort(key=lambda x: getattr(x, 'score', 0), reverse=True)
-            
+            all_results.sort(key=lambda x: getattr(x, "score", 0), reverse=True)
+
             # 只取前N个最相关的结果
-            results = all_results[:settings.MAX_RESULTS_PER_SOURCE]
-            logger.info(f"从 {len(all_results)} 个结果中选择了最相关的 {len(results)} 个")
+            results = all_results[: settings.MAX_RESULTS_PER_SOURCE]
+            logger.info(
+                f"从 {len(all_results)} 个结果中选择了最相关的 {len(results)} 个"
+            )
         else:
             results = all_results
 
@@ -385,7 +399,7 @@ class SearchParser:
                         if len(text) <= 50:  # 避免选择过长的简介
                             logger.debug(f"选择第{i+1}个元素，文本: {text[:30]}")
                             return text
-                
+
                 # 如果所有元素都没有合适的文本，返回第一个非空文本
                 for target in targets:
                     text = target.get_text(strip=True)
@@ -422,9 +436,11 @@ class SearchParser:
                         if len(text) <= 50:  # 避免选择过长的简介
                             attr_value = target.get(attr, "")
                             if attr_value:
-                                logger.debug(f"选择第{i+1}个元素的{attr}属性: {attr_value}")
+                                logger.debug(
+                                    f"选择第{i+1}个元素的{attr}属性: {attr_value}"
+                                )
                                 return attr_value
-                
+
                 # 如果所有元素都没有合适的文本，返回第一个元素的属性
                 for target in targets:
                     attr_value = target.get(attr, "")
@@ -447,7 +463,7 @@ class SearchParser:
         """
         score = 0.0
         keyword_lower = keyword.lower()
-        
+
         # 书名匹配度（权重最高）
         if result.title:
             title_lower = result.title.lower()
@@ -457,7 +473,7 @@ class SearchParser:
                 score += 0.8  # 包含关键词
             elif any(word in title_lower for word in keyword_lower.split()):
                 score += 0.6  # 包含关键词的部分
-        
+
         # 作者匹配度（权重中等）
         if result.author:
             author_lower = result.author.lower()
@@ -465,13 +481,13 @@ class SearchParser:
                 score += 0.5  # 作者完全匹配
             elif keyword_lower in author_lower:
                 score += 0.3  # 作者包含关键词
-        
+
         # 简介匹配度（权重较低）
         if result.intro:
             intro_lower = result.intro.lower()
             if keyword_lower in intro_lower:
                 score += 0.1  # 简介包含关键词
-        
+
         return min(score, 1.0)  # 确保得分不超过1.0
 
     def _decode_content(self, content: bytes, charset: Optional[str]) -> str:
