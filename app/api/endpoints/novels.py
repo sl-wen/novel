@@ -630,13 +630,19 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                 content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()}
             )
         
-        # 确保任务已完成且进度达到100%
-        if progress.progress_percentage < 100.0:
-            logger.warning(f"任务状态为完成但进度未达到100%: {progress.progress_percentage}%")
-            return safe_json_response(
-                status_code=200,
-                content={"code": 200, "message": "running", "data": progress.to_dict()}
-            )
+        # 如果任务已完成(COMPLETED状态)，即使进度不是精确的100%也应该返回文件
+        # 因为有时候由于浮点数精度问题，进度可能是99.99或100.01
+        if progress.status == progress.status.COMPLETED:
+            # 任务已完成，继续返回文件
+            logger.info(f"任务已完成，进度: {progress.progress_percentage}%，准备返回文件")
+        else:
+            # 任务未完成，检查进度
+            if progress.progress_percentage < 100.0:
+                logger.warning(f"任务状态为{progress.status.value}但进度未达到100%: {progress.progress_percentage}%")
+                return safe_json_response(
+                    status_code=200,
+                    content={"code": 200, "message": "running", "data": progress.to_dict()}
+                )
         
         file_path = progress.file_path
         if not file_path:
