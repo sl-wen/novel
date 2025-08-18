@@ -67,22 +67,42 @@ class ProgressInfo:
     
     def to_dict(self) -> dict:
         """转换为字典格式"""
-        return {
-            "task_id": self.task_id,
-            "status": self.status.value,
-            "progress_percentage": round(self.progress_percentage, 2),
-            "completed_chapters": self.completed_chapters,
-            "total_chapters": self.total_chapters,
-            "failed_chapters": self.failed_chapters,
-            "current_chapter": self.current_chapter,
-            "start_time": self.start_time,
-            "end_time": self.end_time,
-            "elapsed_time": round(self.elapsed_time, 2),
-            "estimated_remaining_time": round(self.estimated_remaining_time, 2) if self.estimated_remaining_time else None,
-            "average_speed": round(self.average_speed, 4),
-            "error_message": self.error_message,
-            "file_path": self.file_path,
-        }
+        try:
+            return {
+                "task_id": str(self.task_id) if self.task_id else "",
+                "status": self.status.value if self.status else "pending",
+                "progress_percentage": round(float(self.progress_percentage), 2) if self.progress_percentage is not None else 0.0,
+                "completed_chapters": int(self.completed_chapters) if self.completed_chapters is not None else 0,
+                "total_chapters": int(self.total_chapters) if self.total_chapters is not None else 0,
+                "failed_chapters": int(self.failed_chapters) if self.failed_chapters is not None else 0,
+                "current_chapter": str(self.current_chapter) if self.current_chapter else "",
+                "start_time": float(self.start_time) if self.start_time is not None else 0.0,
+                "end_time": float(self.end_time) if self.end_time else None,
+                "elapsed_time": round(float(self.elapsed_time), 2) if self.elapsed_time is not None else 0.0,
+                "estimated_remaining_time": round(float(self.estimated_remaining_time), 2) if self.estimated_remaining_time else None,
+                "average_speed": round(float(self.average_speed), 4) if self.average_speed is not None else 0.0,
+                "error_message": str(self.error_message) if self.error_message else "",
+                "file_path": str(self.file_path) if self.file_path else None,
+            }
+        except Exception as e:
+            # 如果序列化失败，返回最小的安全数据
+            logger.error(f"进度信息序列化失败: {str(e)}")
+            return {
+                "task_id": str(self.task_id) if self.task_id else "",
+                "status": "error",
+                "progress_percentage": 0.0,
+                "completed_chapters": 0,
+                "total_chapters": 0,
+                "failed_chapters": 0,
+                "current_chapter": "",
+                "start_time": 0.0,
+                "end_time": None,
+                "elapsed_time": 0.0,
+                "estimated_remaining_time": None,
+                "average_speed": 0.0,
+                "error_message": f"序列化失败: {str(e)}",
+                "file_path": None,
+            }
 
 
 class ProgressTracker:
