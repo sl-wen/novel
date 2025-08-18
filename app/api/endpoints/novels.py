@@ -583,19 +583,24 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
         if progress.status == progress.status.FAILED:
             return JSONResponse(status_code=500, content={"code": 500, "message": progress.error_message or "任务失败", "data": progress.to_dict()})
         
+        # 确保任务已完成且进度达到100%
+        if progress.progress_percentage < 100.0:
+            logger.warning(f"任务状态为完成但进度未达到100%: {progress.progress_percentage}%")
+            return {"code": 200, "message": "running", "data": progress.to_dict()}
+        
         file_path = progress.file_path
         if not file_path:
             return JSONResponse(status_code=500, content={"code": 500, "message": "文件路径未设置", "data": progress.to_dict()})
         
         # 文件就绪检查：确保文件存在且完全写入完成
-        async def is_file_ready(file_path: str, max_retries: int = 8, retry_delay: float = 0.6) -> bool:
+        async def is_file_ready(file_path: str, max_retries: int = 20, retry_delay: float = 0.5) -> bool:
             """检查文件是否已经完全写入完成"""
             # 对EPUB文件使用更多重试次数和更长延迟
             if file_path.lower().endswith('.epub'):
-                max_retries = 15  # 增加EPUB文件的重试次数
-                retry_delay = 1.0  # 增加延迟时间
+                max_retries = 25  # 进一步增加EPUB文件的重试次数
+                retry_delay = 0.8  # 增加延迟时间
             
-            logger.info(f"开始文件就绪检查: {file_path}")
+            logger.info(f"开始文件就绪检查: {file_path} (最大重试次数: {max_retries})")
                 
             for attempt in range(max_retries):
                 try:
@@ -620,11 +625,9 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                         logger.error(f"文件大小始终为0: {file_path}")
                         return False
                     
-                    # 等待文件写入稳定
-                    if file_path.lower().endswith('.epub'):
-                        await asyncio.sleep(0.5)  # EPUB文件等待更长时间
-                    else:
-                        await asyncio.sleep(0.2)  # TXT文件等待较短时间
+                    # 等待文件写入稳定 - 增加等待时间
+                    stability_wait = 0.8 if file_path.lower().endswith('.epub') else 0.3
+                    await asyncio.sleep(stability_wait)
                     
                     # 检查文件大小是否稳定
                     try:
@@ -663,8 +666,8 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                                 
                                 # 尝试读取更多内容确保文件完整
                                 f.seek(0)
-                                content_sample = f.read(8192)  # 读取更多内容
-                                if len(content_sample) < 8192 and final_size > 8192:
+                                content_sample = f.read(16384)  # 读取更多内容
+                                if len(content_sample) < 16384 and final_size > 16384:
                                     if attempt < max_retries - 1:
                                         logger.warning(f"EPUB文件内容读取不完整 (尝试 {attempt + 1}/{max_retries})")
                                         await asyncio.sleep(retry_delay)
@@ -672,8 +675,15 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
                                     logger.error("EPUB文件内容读取最终不完整")
                                     return False
                             else:
-                                # TXT文件只需读取文件头
-                                f.read(2048)
+                                # TXT文件验证 - 读取更多内容确保完整性
+                                content_sample = f.read(4096)
+                                if len(content_sample) == 0:
+                                    if attempt < max_retries - 1:
+                                        logger.warning(f"TXT文件内容为空 (尝试 {attempt + 1}/{max_retries})")
+                                        await asyncio.sleep(retry_delay)
+                                        continue
+                                    logger.error("TXT文件内容为空")
+                                    return False
                         
                         logger.info(f"文件就绪检查通过: {file_path} (大小: {final_size} 字节)")
                         return True
