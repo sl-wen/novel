@@ -575,6 +575,7 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
     获取已完成任务的文件（若未完成则返回状态）
 
     特性:
+    - 严格状态控制：只有 completed 状态才返回文件
     - 流式传输：高效的文件传输
     - 智能缓存：避免重复传输
     - 自动清理：防止磁盘空间浪费
@@ -609,27 +610,8 @@ async def get_download_result(task_id: str = Query(..., description="下载任�
 
         file_path = progress.file_path
 
-        # 允许在状态仍为 RUNNING 但进度达到 100% 且文件已生成时直接返回文件
-        ready_to_stream = False
-        if file_path and os.path.exists(file_path):
-            try:
-                # 条件1：显式完成
-                if progress.status == progress.status.COMPLETED:
-                    ready_to_stream = True
-                # 条件2：进度达到或超过100%
-                elif progress.progress_percentage >= 100.0:
-                    ready_to_stream = True
-                # 条件3：章节数达到总数（避免浮点精度问题）
-                elif (
-                    progress.total_chapters > 0
-                    and progress.completed_chapters >= progress.total_chapters
-                ):
-                    ready_to_stream = True
-            except Exception:
-                ready_to_stream = False
-
-        # 未完成且未达到就绪条件，返回状态
-        if progress.status not in [progress.status.COMPLETED, progress.status.FAILED] and not ready_to_stream:
+        # 严格检查：只有 completed 状态才允许返回文件
+        if progress.status != progress.status.COMPLETED:
             return {"code": 200, "message": "running", "data": progress.to_dict()}
 
         if not file_path:
