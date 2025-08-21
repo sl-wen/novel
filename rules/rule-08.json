@@ -107,7 +107,8 @@
     "word_count": ""
   },
   "toc": {
-    "list": "dd > a",
+    "list": "a[href*='/chapternum/']",
+    "item": "a[href*='/read/']",
     "title": "text",
     "url": "href",
     "has_pages": false,

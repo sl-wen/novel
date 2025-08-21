@@ -208,6 +208,16 @@ class TocParser:
             logger.warning("未找到任何章节元素")
             return chapters
 
+        # 针对部分站点（如大熊猫文学）目录页仅包含范围汇总链接（如“第0000--0100章”），需要进入子页抓取真实章节
+        if self._looks_like_range_containers(chapter_elements):
+            logger.info("检测到范围汇总目录链接，开始展开为真实章节…")
+            expanded = self._expand_range_containers(chapter_elements, toc_url)
+            if expanded:
+                logger.info(f"范围汇总展开后获取到 {len(expanded)} 个章节元素")
+                chapter_elements = expanded
+            else:
+                logger.info("范围汇总展开未获取到有效章节元素，继续按原元素解析")
+
         logger.info(f"开始解析 {len(chapter_elements)} 个章节元素")
         
         for index, element in enumerate(chapter_elements, 1):
@@ -224,6 +234,107 @@ class TocParser:
 
         logger.info(f"目录解析完成，成功解析 {len(chapters)} 个章节")
         return chapters
+
+    def _looks_like_range_containers(self, elements) -> bool:
+        """判断目录元素是否为范围汇总容器（例如“第0000--0100章”链接）。"""
+        try:
+            import re as _re
+            range_like = 0
+            checked = 0
+            for el in elements[:30]:  # 取前若干个采样
+                checked += 1
+                text = el.get_text(strip=True)
+                href = ""
+                if el.name == 'a':
+                    href = el.get('href', '')
+                else:
+                    a = el.find('a')
+                    if a:
+                        href = a.get('href', '')
+                        text = a.get_text(strip=True) or text
+                if not text and not href:
+                    continue
+                # 文本形如 第0000--0100章 或 href 包含 chapternum
+                if _re.search(r"第\s*\d+\s*[-—]+\s*\d+\s*章", text) or 'chapternum' in href:
+                    range_like += 1
+            # 大部分都符合特征则认为是汇总容器
+            return checked > 0 and range_like / checked > 0.5
+        except Exception:
+            return False
+
+    def _expand_range_containers(self, elements, base_url: str):
+        """从范围汇总容器链接中抓取真实章节元素，返回 a 元素列表。"""
+        import asyncio as _asyncio
+        from bs4 import BeautifulSoup as _Soup
+        expanded_elements = []
+
+        # 收集需要请求的子页链接
+        subpage_urls = []
+        for el in elements:
+            a = el if el.name == 'a' else el.find('a')
+            if not a:
+                continue
+            href = a.get('href', '')
+            if not href or href in ['#', 'javascript:void(0)', 'javascript:;']:
+                continue
+            subpage_urls.append(urljoin(base_url, href))
+
+        if not subpage_urls:
+            return []
+
+        # 并发抓取子页并解析真实章节链接
+        async def _fetch_and_extract(url: str):
+            html = await self._fetch_html(url)
+            if not html:
+                return []
+            soup = _Soup(html, 'html.parser')
+            # 常见章节链接选择器集合
+            inner_selectors = [
+                self.toc_rule.get('item', ''),
+                self.toc_rule.get('list', ''),
+                '.catalog a', '.chapter-list a', '.list-chapter a',
+                '.book-chapter a', '#list a', '.listmain a',
+                'dd a', 'ul li a', '.mulu a'
+            ]
+            for sel in inner_selectors:
+                sel = (sel or '').strip()
+                if not sel:
+                    continue
+                try:
+                    found = soup.select(sel)
+                    if found and len(found) >= 5:
+                        return found
+                except Exception:
+                    continue
+            # 兜底：返回页面上的所有 a，交由后续过滤
+            try:
+                return soup.find_all('a')
+            except Exception:
+                return []
+
+        async def _run():
+            tasks = [self._fetch_and_parse_page(url) for url in []]  # 占位以通过类型检查
+            # 实际并发抓取子页
+            coros = [_fetch_and_extract(u) for u in subpage_urls]
+            results = await asyncio.gather(*coros, return_exceptions=True)
+            return results
+
+        try:
+            results = asyncio.get_event_loop().run_until_complete(_run())
+        except RuntimeError:
+            # 若在已有事件循环中，使用新的loop运行
+            loop = asyncio.new_event_loop()
+            try:
+                results = loop.run_until_complete(_run())
+            finally:
+                loop.close()
+
+        # 合并并返回元素列表
+        for res in results:
+            if isinstance(res, list):
+                expanded_elements.extend(res)
+
+        return expanded_elements
 
     async def _parse_toc_with_strategies(self, toc_url: str) -> List[ChapterInfo]:
         """使用多种策略解析目录"""
@@ -255,7 +366,129 @@ class TocParser:
         if not html:
             return []
         
-        return self._parse_toc(html, toc_url)
+        # 使用增强版解析（支持范围链接展开）
+        chapters = await self._parse_toc_enhanced(html, toc_url)
+        return chapters
+
+    async def _parse_toc_enhanced(self, html: str, toc_url: str) -> List[ChapterInfo]:
+        """增强版目录解析，支持遇到范围汇总链接时展开子页抓取真实章节。"""
+        soup = BeautifulSoup(html, "html.parser")
+        chapters: List[ChapterInfo] = []
+
+        # 1) 按规则选择器获取元素
+        list_selectors = self.toc_rule.get("list", "").split(",")
+        chapter_elements = []
+        for selector in list_selectors:
+            selector = selector.strip()
+            if not selector:
+                continue
+            elements = soup.select(selector)
+            logger.info(f"选择器 '{selector}' 找到 {len(elements)} 个元素")
+            if elements:
+                chapter_elements = elements
+                break
+
+        if not chapter_elements:
+            logger.warning("未找到任何章节元素")
+            return []
+
+        # 2) 若检测到范围汇总链接（如 chapternum 或 文本形如 第0000--0100章），并发抓取子页
+        def _is_range_el(el) -> bool:
+            try:
+                import re as _re
+                text = el.get_text(strip=True)
+                href = el.get('href', '') if el.name == 'a' else (el.find('a').get('href', '') if el.find('a') else '')
+                if _re.search(r"第\s*\d+\s*[-—]+\s*\d+\s*章", text):
+                    return True
+                if 'chapternum' in href:
+                    return True
+                return False
+            except Exception:
+                return False
+
+        range_like_count = sum(1 for el in chapter_elements if _is_range_el(el))
+        if range_like_count >= max(3, int(len(chapter_elements) * 0.5)):
+            logger.info("检测到范围汇总目录链接，开始并发抓取子页…")
+
+            # 收集子页URL
+            sub_urls: List[str] = []
+            for el in chapter_elements:
+                a = el if el.name == 'a' else el.find('a')
+                if not a:
+                    continue
+                href = a.get('href', '')
+                if not href or href in ['#', 'javascript:void(0)', 'javascript:;']:
+                    continue
+                sub_urls.append(urljoin(toc_url, href))
+
+            inner_elements = await self._expand_range_containers_async(sub_urls)
+
+            # 用统一的提取函数将元素转为章节
+            chapters = self._extract_chapters_from_elements(inner_elements, toc_url)
+            logger.info(f"范围汇总展开得到 {len(chapters)} 个章节")
+            # 清洗与排序
+            chapters = self._clean_and_validate_chapters(chapters)
+            for i, ch in enumerate(chapters):
+                ch.order = i + 1
+            return chapters
+
+        # 3) 非范围场景，走原有解析
+        for index, element in enumerate(chapter_elements, 1):
+            try:
+                chapter = self._parse_single_chapter(element, toc_url, index)
+                if chapter:
+                    chapters.append(chapter)
+                else:
+                    logger.warning(f"解析章节 {index} 失败")
+            except Exception as e:
+                logger.warning(f"解析单个章节失败: {str(e)}")
+                continue
+
+        return chapters
+
+    async def _expand_range_containers_async(self, sub_urls: List[str]):
+        """并发抓取范围汇总子页并抽取可能的章节 a 元素。"""
+        inner_elements = []
+
+        async def _fetch(url: str) -> str:
+            return await self._fetch_html(url)
+
+        html_list = await asyncio.gather(*[_fetch(u) for u in sub_urls], return_exceptions=True)
+
+        candidate_selectors = [
+            self.toc_rule.get('item', ''),
+            self.toc_rule.get('list', ''),
+            '.catalog a', '.chapter-list a', '.list-chapter a',
+            '.book-chapter a', '#list a', '.listmain a',
+            '.listmain dd a', '.listmain dt a',
+            'dd a', 'ul li a', '.mulu a'
+        ]
+
+        for sub_html in html_list:
+            if not isinstance(sub_html, str) or not sub_html:
+                continue
+            sub_soup = BeautifulSoup(sub_html, 'html.parser')
+            found = []
+            for sel in candidate_selectors:
+                sel = (sel or '').strip()
+                if not sel:
+                    continue
+                try:
+                    elems = sub_soup.select(sel)
+                    if elems and len(elems) >= 5:
+                        found = elems
+                        break
+                except Exception:
+                    continue
+            if not found:
+                # 兜底：取所有 a
+                try:
+                    found = sub_soup.find_all('a')
+                except Exception:
+                    found = []
+            inner_elements.extend(found)
+
+        return inner_elements
 
     async def _parse_with_smart_selectors(self, toc_url: str) -> List[ChapterInfo]:
         """使用智能选择器解析"""
@@ -438,6 +671,22 @@ class TocParser:
                 if _re.search(r'第\s*\d+\s*[-—]+\s*\d+\s*章', title):
                     continue
                 if _re.search(r'(?:/list/|chapternum)', href):
+                    continue
+
+                # 进一步过滤非章节页面链接（如详情页/书架/下载等）
+                invalid_url_patterns = [
+                    r'(^|/)book/\d+\.html$',   # 书籍详情页（兼容无/前缀）
+                    r'BookMark\.aspx$',         # 我的书架
+                    r'\.apk$',                  # APP下载
+                    r'\.zip$', r'\.rar$',      # 压缩包
+                ]
+                if any(_re.search(p, href, _re.IGNORECASE) for p in invalid_url_patterns):
+                    continue
+
+                invalid_title_keywords = [
+                    'APP', 'app', '书架', '我的书架', '下载', '手机版', '电脑版', '返回', '上一页', '下一页', '首页',
+                ]
+                if any(k in title for k in invalid_title_keywords):
                     continue
                 
                 # 构建完整URL

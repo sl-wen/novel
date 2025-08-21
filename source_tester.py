@@ -191,8 +191,9 @@ async def summarize_all_sources(
     )
     print("-" * 80)
     for r in sorted(rows, key=lambda x: x["id"]):
-        s = "✅" if r["search"] else "❌"
-        t = "✅" if r["toc"] else "❌"
+        s = "OK" if r["search"] else "X"
+        t = "OK" if r["toc"] else "X"
+
         print(
             f"{r['id']:<4} {r['name']:<16} {s:<6} {t:<10} {r['results']:<6} {r['time']:<9}"
         )
@@ -237,13 +238,13 @@ async def main():
             raise ValueError(f"未找到匹配的书源名称: {args.source_name}")
 
     print("=" * 80)
-    print(f"🔍 关键词: {args.keyword}")
+    print(f"关键词: {args.keyword}")
     if target_source_id is not None:
         print(
-            f"🎯 指定书源: {service.sources[target_source_id].rule.get('name', target_source_id)} (ID: {target_source_id})"
+            f"指定书源: {service.sources[target_source_id].rule.get('name', target_source_id)} (ID: {target_source_id})"
         )
     else:
-        print("🌐 跨书源搜索模式")
+        print("跨书源搜索模式")
     print("=" * 80)
 
     # 执行搜索
@@ -251,17 +252,15 @@ async def main():
         results, elapsed_ms, source_name = await search_in_specific_source(
             service, target_source_id, args.keyword
         )
-        print(
-            f"✅ 搜索完成（{source_name}）：{len(results)} 条，用时 {elapsed_ms:.0f} ms"
-        )
+        print(f"搜索完成（{source_name}）：{len(results)} 条，用时 {elapsed_ms:.0f} ms")
     else:
         results, elapsed_ms = await search_across_sources(
             service, args.keyword, args.max_results
         )
-        print(f"✅ 搜索完成（跨书源）：{len(results)} 条，用时 {elapsed_ms:.0f} ms")
+        print(f"搜索完成（跨书源）：{len(results)} 条，用时 {elapsed_ms:.0f} ms")
 
     if not results:
-        print("❌ 未找到任何结果")
+        print("未找到任何结果")
         return
 
     print("\n前N条结果：")
@@ -286,17 +285,17 @@ async def main():
     book_source_name = getattr(chosen, "source_name", "")
 
     if not book_url or not book_source_id:
-        print("⚠️ 无法解析到有效的详情URL或书源ID，跳过详情/目录/下载")
+        print("无法解析到有效的详情URL或书源ID，跳过详情/目录/下载")
         return
 
     print("\n" + "-" * 80)
-    print(f"📄 详情与目录（来源：{book_source_name or book_source_id}）")
+    print(f"详情与目录（来源：{book_source_name or book_source_id}）")
     # 获取详情
     detail_start = time.time()
     book = await service.get_book_detail(book_url, book_source_id)
     detail_ms = (time.time() - detail_start) * 1000
     if book:
-        print(f"✅ 获取详情成功，用时 {detail_ms:.0f} ms")
+        print(f"获取详情成功，用时 {detail_ms:.0f} ms")
         # 书名兜底：详情页缺失时回退为搜索结果标题
         fallback_title = getattr(chosen, "title", "N/A")
         book_title = getattr(book, "name", "") or fallback_title
@@ -304,15 +303,15 @@ async def main():
         intro = getattr(book, "intro", "") or ""
         if intro:
             intro_short = intro.strip().replace("\n", " ")[:100]
-            print(f"   简介: {intro_short}{'…' if len(intro) > 100 else ''}")
+            print(f"   简介: {intro_short}{'...' if len(intro) > 100 else ''}")
     else:
-        print(f"❌ 获取详情失败，用时 {detail_ms:.0f} ms")
+        print(f"获取详情失败，用时 {detail_ms:.0f} ms")
 
     # 获取目录
     toc_start = time.time()
     toc = await service.get_toc(book_url, book_source_id)
     toc_ms = (time.time() - toc_start) * 1000
-    print(f"📚 目录章节: {len(toc)} 条，用时 {toc_ms:.0f} ms")
+    print(f"目录章节: {len(toc)} 条，用时 {toc_ms:.0f} ms")
     for i, ch in enumerate(toc[: args.show_toc]):
         try:
             print(
