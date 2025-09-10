@@ -22,7 +22,7 @@ jobs:
         key: ${{ secrets.SERVER_SSH }}
         port: 22
         timeout: 30s
-        command_timeout: 15m
+        command_timeout: 5m
         script: |
           echo "=== 开始部署后端API ==="
           echo "时间: $(date)"
@@ -38,31 +38,6 @@ jobs:
           # 停止后端服务
           echo "停止后端API服务..."
           sudo systemctl stop blog novel || echo "后端服务已停止"
-          
-          # 检查SSH环境
-          echo "检查SSH环境..."
-          export HOME=/root
-          export SSH_AUTH_SOCK=""
-          
-          # 检查SSH密钥
-          SSH_KEY=""
-          if [ -f /root/.ssh/id_ed25519 ]; then
-            SSH_KEY="/root/.ssh/id_ed25519"
-          elif [ -f /root/.ssh/id_rsa ]; then
-            SSH_KEY="/root/.ssh/id_rsa"
-          fi
-          
-          if [ -n "$SSH_KEY" ]; then
-            eval "$(ssh-agent -s)"
-            chmod 600 "$SSH_KEY" 2>/dev/null
-            ssh-add "$SSH_KEY" 2>/dev/null && echo "✅ SSH密钥已加载"
-          fi
-          
-          # 修复GitHub SSH域名
-          CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
-          if [[ "$CURRENT_REMOTE" == *"ssh.github.com"* ]]; then
-            git remote set-url origin git@github.com:sl-wen/novel.git
-          fi
           
           # 拉取最新代码
           echo "拉取最新后端代码..."
