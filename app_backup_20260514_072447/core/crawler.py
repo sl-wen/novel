@@ -1,0 +1,895 @@
+import asyncio
+import json
+import logging
+import os
+import re
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import aiohttp
+from bs4 import BeautifulSoup
+
+from app.core.config import settings
+from app.core.source import Source
+from app.models.book import Book
+from app.models.chapter import Chapter, ChapterInfo
+from app.parsers.book_parser import BookParser
+from app.parsers.chapter_parser import ChapterParser
+from app.parsers.toc_parser import TocParser
+from app.utils.content_validator import ChapterValidator
+from app.utils.download_monitor import DownloadMonitor
+from app.utils.file import FileUtils
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DownloadConfig:
+    """下载配置"""
+
+    max_concurrent: int = 8  # 降低并发数以提高稳定性
+    retry_times: int = 5  # 增加重试次数
+    retry_delay: float = 2.0
+    batch_delay: float = 1.5  # 增加批次间延迟
+    timeout: int = 500  # 增加超时时间
+    enable_recovery: bool = True  # 启用恢复机制
+    progress_callback: Optional[callable] = None
+
+
+class Crawler:
+    """爬虫，提供稳定的下载功能"""
+
+    def __init__(self, config=None):
+        """初始化爬虫
+
+        Args:
+            config: 下载配置
+        """
+        self.config = config or settings
+        self.download_config = DownloadConfig()
+        self.monitor = DownloadMonitor()
+        self.validator = ChapterValidator()
+        self.session_pool = {}  # 会话池
+        self.failed_chapters = []  # 失败章节记录
+
+    async def download(
+        self,
+        url: str,
+        source_id: int,
+        format: str = "txt",
+        task_id: Optional[str] = None,
+        format_options: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """下载小说（增强版）
+
+        Args:
+            url: 小说详情页URL
+            source_id: 书源ID
+            format: 下载格式
+
+        Returns:
+            下载文件路径
+        """
+        logger.info(f"开始增强版下载: {url}")
+        start_time = time.time()
+
+        try:
+            # 初始化进度跟踪
+            from app.utils.progress_tracker import progress_tracker
+
+            # 1. 获取小说详情（带重试和多源支持）
+            book = await self._get_book_detail_with_fallback(url, source_id)
+            if not book:
+                if task_id:
+                    progress_tracker.complete_task(task_id, False, "获取小说详情失败")
+                raise ValueError("获取小说详情失败")
+
+            logger.info(f"获取到小说: {book.title} - {book.author}")
+
+            # 2. 获取目录（带重试和多种策略）
+            toc = await self._get_toc_with_fallback(url, source_id)
+            if not toc:
+                if task_id:
+                    progress_tracker.complete_task(task_id, False, "获取小说目录失败")
+                raise ValueError("获取小说目录失败")
+
+            logger.info(f"获取到 {len(toc)} 个章节")
+
+            # 初始化或更新进度跟踪
+            if task_id:
+                progress_tracker.update_progress(task_id, 0, "开始下载", 0)
+                # 更新总章节数
+                progress = progress_tracker.get_progress(task_id)
+                if progress:
+                    progress.total_chapters = len(toc)
+
+            # 3. 创建下载目录
+            download_dir = await self._create_download_directory(book, format)
+
+            # 4. 检查是否有未完成的下载
+            if self.download_config.enable_recovery:
+                existing_chapters = self._check_existing_chapters(download_dir)
+                logger.info(f"发现已下载章节: {len(existing_chapters)} 个")
+            else:
+                existing_chapters = {}
+
+            # 5. 下载章节
+            chapters = await self._download_chapters(
+                toc, source_id, existing_chapters, download_dir, task_id
+            )
+
+            logger.info(f"成功下载 {len(chapters)} 个章节")
+
+            # 5.1 格式化章节标题（为缺少序号的章节添加"第X章"格式）废弃
+
+            # 6. 生成最终文件
+            file_path = await self._generate_final_file(
+                book, chapters, download_dir, format
+            )
+
+            # 6.1 确保文件完全写入磁盘
+            if file_path:
+                await self._flush_file_to_disk(file_path)
+
+            # 6.2 验证文件完整性
+            await self._verify_file_integrity(file_path)
+
+            # 6.3 对于EPUB文件，进行额外的就绪检查
+            if format.lower() == "epub":
+                await self._ensure_epub_file_ready(file_path)
+
+            # 6.4 记录生成文件路径（在文件完全准备好之前）
+            if task_id:
+                progress_tracker.set_file_path(task_id, str(file_path))
+
+            # 6.5 最终文件就绪检查 - 确保文件完全可用
+            await self._final_file_ready_check(file_path)
+
+            # 7. 清理临时文件
+            await self._cleanup_temp_files(download_dir)
+
+            end_time = time.time()
+            logger.info(f"下载完成，耗时 {end_time - start_time:.2f} 秒")
+
+            # 只有在文件完全准备好后才完成任务进度跟踪
+            if task_id:
+                # 确保进度达到100%
+                progress_tracker.update_progress(task_id, len(chapters), "文件生成完成", len(self.failed_chapters))
+                progress_tracker.complete_task(task_id, True)
+
+            return str(file_path)
+
+        except Exception as e:
+            logger.error(f"下载失败: {str(e)}")
+            # 标记任务失败
+            if task_id:
+                progress_tracker.complete_task(task_id, False, str(e))
+            raise
+        finally:
+            # 清理会话池
+            await self._cleanup_sessions()
+
+    async def _get_book_detail_with_fallback(
+        self, url: str, source_id: int
+    ) -> Optional[Book]:
+        """带备用源的获取书籍详情"""
+        # 首先尝试指定的书源
+        book = await self._get_book_detail_with_retry(url, source_id)
+        if book:
+            return book
+
+        # 如果失败，尝试其他可用书源
+        logger.warning(f"书源 {source_id} 获取详情失败，尝试其他书源")
+
+        # 这里可以添加书源切换逻辑
+        # 暂时返回None，让上层处理
+        return None
+
+    async def _get_book_detail_with_retry(
+        self, url: str, source_id: int
+    ) -> Optional[Book]:
+        """带重试的获取书籍详情"""
+        for attempt in range(self.download_config.retry_times):
+            try:
+                source = Source(source_id)
+                parser = BookParser(source)
+                book = await parser.parse(url)
+                if book:
+                    return book
+            except Exception as e:
+                logger.warning(f"获取书籍详情失败 (尝试 {attempt + 1}): {str(e)}")
+                if attempt < self.download_config.retry_times - 1:
+                    await asyncio.sleep(
+                        self.download_config.retry_delay * (attempt + 1)
+                    )
+
+        return None
+
+    async def _get_toc_with_fallback(
+        self, url: str, source_id: int
+    ) -> List[ChapterInfo]:
+        """带备用源的获取目录"""
+        # 首先尝试指定的书源
+        toc = await self._get_toc_with_retry(url, source_id)
+        if toc:
+            return toc
+
+        # 如果失败，尝试其他可用书源
+        logger.warning(f"书源 {source_id} 获取目录失败，尝试其他书源")
+
+        # 这里可以添加书源切换逻辑
+        return []
+
+    async def _get_toc_with_retry(self, url: str, source_id: int) -> List[ChapterInfo]:
+        """带重试和多策略的获取目录"""
+        source = Source(source_id)
+        parser = TocParser(source)
+
+        # 多次尝试获取目录
+        for attempt in range(self.download_config.retry_times):
+            try:
+                toc = await parser.parse(url)
+                if toc:
+                    logger.info(f"目录解析成功，获取到 {len(toc)} 个章节")
+                    return toc
+            except Exception as e:
+                logger.warning(f"目录解析失败 (尝试 {attempt + 1}): {str(e)}")
+                if attempt < self.download_config.retry_times - 1:
+                    await asyncio.sleep(
+                        self.download_config.retry_delay * (attempt + 1)
+                    )
+
+        return []
+
+    async def _parse_toc_with_selector(
+        self, url: str, source: Source, selector: str
+    ) -> List[ChapterInfo]:
+        """使用指定选择器解析目录"""
+        # 临时修改书源规则
+        original_rule = source.rule.get("toc", {}).copy()
+        source.rule["toc"]["list"] = selector
+
+        try:
+            parser = TocParser(source)
+            return await parser.parse(url)
+        finally:
+            # 恢复原始规则
+            source.rule["toc"] = original_rule
+
+    async def _create_download_directory(self, book: Book, format: str) -> Path:
+        """创建下载目录"""
+        safe_title = FileUtils.sanitize_filename(book.title)
+        safe_author = FileUtils.sanitize_filename(book.author)
+        dir_name = f"{safe_title} ({safe_author}) {format.upper()}"
+
+        download_dir = Path(self.config.DOWNLOAD_PATH) / dir_name
+        download_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"下载目录: {download_dir}")
+        return download_dir
+
+    def _check_existing_chapters(self, download_dir: Path) -> Dict[str, str]:
+        """检查已存在的章节文件"""
+        existing = {}
+        temp_dir = download_dir / "temp"
+        if temp_dir.exists():
+            for file_path in temp_dir.glob("*.txt"):
+                # 文件名是经过sanitize的，需要映射回原始标题
+                safe_filename = file_path.stem
+                existing[safe_filename] = str(file_path)
+        return existing
+
+    async def _download_chapters(
+        self,
+        toc: List[ChapterInfo],
+        source_id: int,
+        existing_chapters: Dict[str, str],
+        download_dir: Path,
+        task_id: Optional[str] = None,
+    ) -> List[Chapter]:
+        """章节下载"""
+        self.monitor.start_download(len(toc))
+
+        source = Source(source_id)
+        parser = ChapterParser(source)
+        chapters = []
+        self.failed_chapters = []
+
+        # 创建临时目录（按书籍隔离，避免内容混淆）
+        temp_dir = Path(download_dir) / "temp"
+        temp_dir.mkdir(exist_ok=True)
+
+        logger.info(
+            f"开始下载 {len(toc)} 章，最大并发数: {self.download_config.max_concurrent}"
+        )
+
+        # 使用有界并发控制（不按批次，持续投递任务），提升总吞吐
+        semaphore = asyncio.Semaphore(self.download_config.max_concurrent)
+
+        async def download_one(chapter_info: ChapterInfo) -> Optional[Chapter]:
+            safe_filename = FileUtils.sanitize_filename(chapter_info.title)
+            if safe_filename in existing_chapters:
+                logger.info(f"跳过已存在章节: {chapter_info.title}")
+                return None
+            async with semaphore:
+                result = await self._download_single_chapter(
+                    parser, chapter_info, temp_dir
+                )
+                if result:
+                    chapters.append(result)
+                    # 更新进度
+                    if self.download_config.progress_callback:
+                        self.download_config.progress_callback(len(chapters), len(toc))
+                    if task_id:
+                        from app.utils.progress_tracker import progress_tracker
+
+                        progress_tracker.update_progress(
+                            task_id,
+                            len(chapters),
+                            result.title,
+                            len(self.failed_chapters),
+                        )
+                return result
+
+        tasks = [download_one(ch) for ch in toc]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 处理失败的章节
+        if self.failed_chapters:
+            logger.info(f"重试失败的 {len(self.failed_chapters)} 个章节")
+            retry_chapters = await self._retry_failed_chapters(parser, temp_dir)
+            chapters.extend(retry_chapters)
+
+        # 从现有文件加载章节
+        for safe_filename, file_path in existing_chapters.items():
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    # 从toc中找到对应章节的正确order和原始标题
+                    correct_order = 0
+                    original_title = safe_filename  # 默认使用安全文件名
+                    for toc_chapter in toc:
+                        if (
+                            FileUtils.sanitize_filename(toc_chapter.title)
+                            == safe_filename
+                        ):
+                            correct_order = toc_chapter.order
+                            original_title = toc_chapter.title
+                            break
+                    chapter = Chapter(
+                        title=original_title, content=content, order=correct_order
+                    )
+                    chapters.append(chapter)
+            except Exception as e:
+                logger.warning(f"加载已存在章节失败 {safe_filename}: {str(e)}")
+
+        # 按顺序排序
+        chapters.sort(key=lambda x: x.order or 0)
+
+        return chapters
+
+    async def _download_single_chapter(
+        self, parser: ChapterParser, chapter_info: ChapterInfo, temp_dir: Path
+    ) -> Optional[Chapter]:
+        """单章节下载"""
+        # 使用安全的文件名
+        safe_filename = FileUtils.sanitize_filename(chapter_info.title)
+        chapter_file = temp_dir / f"{safe_filename}.txt"
+
+        for attempt in range(self.download_config.retry_times):
+            try:
+                self.monitor.chapter_started(chapter_info.title, chapter_info.url)
+
+                # 下载章节
+                chapter = await parser.parse(
+                    chapter_info.url, chapter_info.title, chapter_info.order
+                )
+
+                if not chapter or not chapter.content:
+                    raise ValueError("章节内容为空")
+
+                # 验证内容质量
+                if len(chapter.content) < settings.MIN_CHAPTER_LENGTH:
+                    raise ValueError(f"章节内容过短: {len(chapter.content)} 字符")
+
+                quality_score = self.validator.get_chapter_quality_score(
+                    chapter.content
+                )
+                if quality_score < 0.3:  # 质量阈值
+                    raise ValueError(f"章节质量过低: {quality_score}")
+
+                # 保存到临时文件
+                with open(chapter_file, "w", encoding="utf-8") as f:
+                    f.write(chapter.content)
+
+                # 设置章节顺序
+                chapter.order = chapter_info.order
+
+                self.monitor.chapter_completed(
+                    chapter_info.title, len(chapter.content), quality_score
+                )
+
+                logger.debug(
+                    f"章节下载成功: {chapter.title} ({len(chapter.content)} 字符)"
+                )
+                return chapter
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.warning(
+                    f"章节下载失败 (尝试 {attempt + 1}): {chapter_info.title} - {error_msg}"
+                )
+
+                if attempt < self.download_config.retry_times - 1:
+                    await asyncio.sleep(
+                        self.download_config.retry_delay * (attempt + 1)
+                    )
+                else:
+                    # 记录失败章节
+                    self.failed_chapters.append(chapter_info)
+                    self.monitor.chapter_failed(chapter_info.title, error_msg)
+
+        return None
+
+    async def _retry_failed_chapters(
+        self, parser: ChapterParser, temp_dir: Path
+    ) -> List[Chapter]:
+        """重试失败的章节"""
+        retry_chapters = []
+
+        for chapter_info in self.failed_chapters:
+            try:
+                logger.info(f"重试章节: {chapter_info.title}")
+
+                # 使用更长的超时时间
+                chapter = await asyncio.wait_for(
+                    parser.parse(chapter_info.url),
+                    timeout=self.download_config.timeout * 2,
+                )
+
+                if chapter and chapter.content:
+                    chapter.order = chapter_info.order
+                    retry_chapters.append(chapter)
+
+                    # 保存到临时文件
+                    safe_filename = FileUtils.sanitize_filename(chapter_info.title)
+                    chapter_file = temp_dir / f"{safe_filename}.txt"
+                    with open(chapter_file, "w", encoding="utf-8") as f:
+                        f.write(chapter.content)
+
+                    logger.info(f"重试成功: {chapter.title}")
+
+            except Exception as e:
+                logger.error(f"重试失败: {chapter_info.title} - {str(e)}")
+
+        return retry_chapters
+
+    async def _generate_final_file(
+        self, book: Book, chapters: List[Chapter], download_dir: Path, format: str
+    ) -> Path:
+        """生成最终文件"""
+        if format == "txt":
+            return await self._generate_txt_file_async(book, chapters, download_dir)
+        elif format == "epub":
+            return await self._generate_epub_file_async(book, chapters, download_dir)
+        else:
+            raise ValueError(f"不支持的格式: {format}")
+
+    async def _generate_txt_file_async(
+        self, book: Book, chapters: List[Chapter], download_dir: Path
+    ) -> Path:
+        """异步生成TXT文件"""
+        filename = f"{FileUtils.sanitize_filename(book.title)}.txt"
+        file_path = download_dir / filename
+
+        def write_file():
+            # 确保章节按顺序排列
+            chapters.sort(key=lambda x: x.order or 0)
+            
+            logger.info(f"开始写入TXT文件: {file_path} (章节数: {len(chapters)})")
+
+            with open(file_path, "w", encoding="utf-8") as f:
+                # 写入书籍信息
+                f.write(f"书名：{book.title}\n")
+                f.write(f"作者：{book.author}\n")
+                if book.intro:
+                    f.write(f"简介：{book.intro}\n")
+                f.write(f"章节数：{len(chapters)}\n")
+                f.write("=" * 50 + "\n\n")
+                
+                # 强制刷新缓冲区，确保书籍信息写入
+                f.flush()
+
+                # 写入章节内容
+                for i, chapter in enumerate(chapters):
+                    title = chapter.title
+                    # 使用更标准的章节格式，提高读书软件兼容性
+                    # 在章节标题前后添加空行，并确保章节标题独占一行
+                    f.write(f"\n\n{title}\n\n")
+                    f.write(chapter.content)
+                    f.write("\n")
+                    
+                    # 每写入10个章节就刷新一次缓冲区，确保内容及时写入磁盘
+                    if (i + 1) % 10 == 0:
+                        f.flush()
+                        logger.debug(f"已写入 {i + 1}/{len(chapters)} 个章节")
+                
+                # 最终刷新，确保所有内容都写入文件
+                f.flush()
+                import os
+                os.fsync(f.fileno())  # 强制同步到磁盘
+                
+            logger.info(f"TXT文件内容写入完成: {file_path}")
+
+        # 在线程池中执行文件写入
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            await loop.run_in_executor(executor, write_file)
+        
+        # 额外等待确保文件写入完成
+        await asyncio.sleep(0.2)
+
+        logger.info(f"TXT文件生成完成: {file_path}")
+        return file_path
+
+
+    async def _generate_epub_file_async(
+        self, book: Book, chapters: List[Chapter], download_dir: Path
+    ) -> Path:
+        """异步生成EPUB文件"""
+        from app.utils.epub_generator import EPUBGenerator
+
+        # 生成安全的文件名
+        safe_filename = FileUtils.sanitize_filename(f"{book.title}_{book.author}")
+        epub_path = download_dir / f"{safe_filename}.epub"
+        
+        logger.info(f"开始生成EPUB文件: {epub_path} (章节数: {len(chapters)})")
+
+        def generate_epub():
+            generator = EPUBGenerator()
+            # 确保章节按顺序排列
+            chapters.sort(key=lambda x: x.order or 0)
+            result = generator.generate(book, chapters, str(epub_path))
+            
+            # 在生成器内部添加同步操作
+            import os
+            if os.path.exists(result):
+                # 强制同步文件到磁盘
+                with open(result, "rb") as f:
+                    f.flush()
+                    os.fsync(f.fileno())
+                logger.info(f"EPUB文件内容写入完成: {result}")
+            
+            return result
+
+        # 在线程池中执行EPUB生成以避免阻塞
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result_path = await loop.run_in_executor(executor, generate_epub)
+
+        # 额外等待确保文件写入完成
+        await asyncio.sleep(0.5)
+
+        # 额外的文件就绪检查 - 增加重试次数和等待时间
+        result_path_obj = Path(result_path)
+        max_wait_attempts = 15  # 增加重试次数
+        base_delay = 0.2
+        
+        for attempt in range(max_wait_attempts):
+            try:
+                # 检查文件是否存在且可读
+                if result_path_obj.exists() and result_path_obj.stat().st_size > 0:
+                    file_size = result_path_obj.stat().st_size
+                    
+                    # 等待文件大小稳定
+                    await asyncio.sleep(base_delay)
+                    stable_size = result_path_obj.stat().st_size
+                    
+                    if file_size != stable_size:
+                        logger.warning(f"EPUB文件大小不稳定 (尝试 {attempt + 1}): {file_size} -> {stable_size}")
+                        await asyncio.sleep(base_delay * (attempt + 1))
+                        continue
+                    
+                    # 尝试打开文件确保完全可用
+                    with open(result_path, "rb") as f:
+                        header = f.read(4)
+                        if header == b'PK\x03\x04':
+                            # 读取更多内容确保文件完整
+                            f.seek(0)
+                            content_sample = f.read(8192)
+                            if len(content_sample) >= min(8192, stable_size):
+                                logger.info(f"EPUB文件生成完成: {result_path} (大小: {stable_size} 字节)")
+                                return result_path_obj
+                            else:
+                                logger.warning(f"EPUB文件读取不完整 (尝试 {attempt + 1})")
+                        else:
+                            logger.warning(f"EPUB文件头无效 (尝试 {attempt + 1}): {header}")
+                
+                # 如果文件还没就绪，稍等片刻
+                await asyncio.sleep(base_delay * (attempt + 1))
+                
+            except Exception as e:
+                if attempt < max_wait_attempts - 1:
+                    logger.warning(f"EPUB文件检查失败 (尝试 {attempt + 1}): {str(e)}")
+                    await asyncio.sleep(base_delay * (attempt + 1))
+                    continue
+                else:
+                    logger.error(f"EPUB文件最终检查失败: {str(e)}")
+                    raise
+        
+        # 如果所有尝试都失败了
+        raise ValueError(f"EPUB文件生成后验证失败: {result_path}")
+
+    async def _flush_file_to_disk(self, file_path: Path):
+        """确保文件完全写入磁盘"""
+        logger.info(f"开始文件写入磁盘同步: {file_path}")
+        try:
+            # 使用 fsync 确保文件写入磁盘
+            import os
+            
+            # 先检查文件是否存在
+            if not file_path.exists():
+                raise FileNotFoundError(f"文件不存在: {file_path}")
+            
+            # 获取文件描述符并同步
+            with open(file_path, "rb") as f:
+                # 强制刷新到磁盘
+                f.flush()
+                os.fsync(f.fileno())
+            
+            # 等待一小段时间确保操作系统完成写入
+            await asyncio.sleep(0.1)
+            
+            logger.info(f"文件写入磁盘同步成功: {file_path}")
+            
+        except Exception as e:
+            logger.warning(f"文件写入磁盘同步失败: {file_path} - {str(e)}")
+            # 不抛出异常，因为这只是一个优化步骤
+
+    async def _verify_file_integrity(self, file_path: Path):
+        """验证文件完整性"""
+        try:
+            # 检查文件是否存在
+            if not file_path.exists():
+                raise ValueError("文件不存在")
+            
+            # 检查文件大小
+            file_size = file_path.stat().st_size
+            if file_size == 0:
+                raise ValueError("文件大小为0")
+            
+            # 根据文件类型进行不同的验证
+            if file_path.suffix.lower() == '.txt':
+                # TXT文件验证
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    # 检查文件是否为空
+                    if not content.strip():
+                        raise ValueError("文件内容为空")
+                    # 检查文件是否包含基本的书籍信息
+                    if "书名：" not in content:
+                        raise ValueError("文件缺少书名信息")
+            elif file_path.suffix.lower() == '.epub':
+                # EPUB文件验证 - 简单检查文件头
+                with open(file_path, "rb") as f:
+                    # EPUB文件应该是ZIP格式，检查ZIP文件头
+                    header = f.read(4)
+                    if header != b'PK\x03\x04':
+                        raise ValueError("EPUB文件格式无效")
+            
+            logger.info(f"文件完整性验证通过: {file_path} (大小: {file_size} 字节)")
+            
+        except Exception as e:
+            logger.error(f"文件完整性验证失败: {file_path} - {str(e)}")
+            raise
+
+    async def _ensure_epub_file_ready(self, file_path: Path):
+        """确保EPUB文件完全就绪"""
+        max_attempts = 10  # 增加重试次数
+        base_delay = 0.3  # 基础延迟
+        
+        logger.info(f"开始 EPUB 文件就绪检查: {file_path}")
+        
+        for attempt in range(max_attempts):
+            try:
+                # 检查文件存在性
+                if not file_path.exists():
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"EPUB文件尚不存在 (尝试 {attempt + 1}/{max_attempts})")
+                        await asyncio.sleep(base_delay * (attempt + 1))
+                        continue
+                    else:
+                        raise FileNotFoundError(f"EPUB文件不存在: {file_path}")
+                
+                # 检查文件大小是否稳定
+                initial_size = file_path.stat().st_size
+                
+                # 如果文件大小为0，说明还在写入中
+                if initial_size == 0:
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"EPUB文件大小为0 (尝试 {attempt + 1}/{max_attempts})")
+                        await asyncio.sleep(base_delay * (attempt + 1))
+                        continue
+                    else:
+                        raise ValueError("EPUB文件大小为0")
+                
+                # 等待文件写入稳定
+                await asyncio.sleep(base_delay)
+                final_size = file_path.stat().st_size
+                
+                # 检查大小是否稳定
+                if initial_size != final_size:
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"EPUB文件大小不稳定 (尝试 {attempt + 1}/{max_attempts}): {initial_size} -> {final_size}")
+                        await asyncio.sleep(base_delay * (attempt + 1))
+                        continue
+                    else:
+                        raise ValueError(f"EPUB文件大小不稳定: {initial_size} -> {final_size}")
+                
+                # 验证文件完整性
+                try:
+                    with open(file_path, "rb") as f:
+                        # 检查EPUB文件头
+                        header = f.read(4)
+                        if header != b'PK\x03\x04':
+                            raise ValueError(f"EPUB文件头无效: {header}")
+                        
+                        # 尝试读取更多内容确保文件完整
+                        f.seek(0)
+                        content_sample = f.read(4096)  # 读取更多内容
+                        if len(content_sample) < 4096 and final_size > 4096:
+                            raise ValueError("EPUB文件读取不完整")
+                        
+                        logger.info(f"EPUB文件就绪检查通过: {file_path} (大小: {final_size} 字节)")
+                        return
+                        
+                except (IOError, OSError) as e:
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"EPUB文件读取失败 (尝试 {attempt + 1}/{max_attempts}): {str(e)}")
+                        await asyncio.sleep(base_delay * (attempt + 1))
+                        continue
+                    else:
+                        raise ValueError(f"EPUB文件读取失败: {str(e)}")
+                        
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    logger.warning(f"EPUB文件就绪检查失败 (尝试 {attempt + 1}/{max_attempts}): {str(e)}")
+                    await asyncio.sleep(base_delay * (attempt + 1))
+                    continue
+                else:
+                    logger.error(f"EPUB文件最终就绪检查失败: {str(e)}")
+                    raise
+
+    async def _final_file_ready_check(self, file_path: Path):
+        """最终文件就绪检查 - 确保文件完全可用于下载"""
+        max_attempts = 15  # 增加重试次数以确保文件完全准备好
+        base_delay = 0.5   # 基础延迟
+        
+        logger.info(f"开始最终文件就绪检查: {file_path}")
+        
+        for attempt in range(max_attempts):
+            try:
+                # 检查文件存在性
+                if not file_path.exists():
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"文件尚不存在 (尝试 {attempt + 1}/{max_attempts}): {file_path}")
+                        await asyncio.sleep(base_delay)
+                        continue
+                    else:
+                        raise FileNotFoundError(f"文件不存在: {file_path}")
+                
+                # 检查文件大小是否稳定
+                initial_size = file_path.stat().st_size
+                
+                # 如果文件大小为0，说明还在写入中
+                if initial_size == 0:
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"文件大小为0 (尝试 {attempt + 1}/{max_attempts}): {file_path}")
+                        await asyncio.sleep(base_delay)
+                        continue
+                    else:
+                        raise ValueError(f"文件大小为0: {file_path}")
+                
+                # 等待文件写入稳定
+                await asyncio.sleep(base_delay)
+                
+                # 再次检查文件大小
+                try:
+                    final_size = file_path.stat().st_size
+                except (FileNotFoundError, OSError) as e:
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"文件状态检查失败 (尝试 {attempt + 1}/{max_attempts}): {str(e)}")
+                        await asyncio.sleep(base_delay)
+                        continue
+                    else:
+                        raise ValueError(f"文件状态检查失败: {str(e)}")
+                
+                # 检查大小是否稳定
+                if initial_size != final_size:
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"文件大小不稳定 (尝试 {attempt + 1}/{max_attempts}): {initial_size} -> {final_size}")
+                        await asyncio.sleep(base_delay)
+                        continue
+                    else:
+                        raise ValueError(f"文件大小不稳定: {initial_size} -> {final_size}")
+                
+                # 验证文件可读性
+                try:
+                    with open(file_path, "rb") as f:
+                        # 根据文件类型进行不同的验证
+                        if file_path.suffix.lower() == '.epub':
+                            # EPUB文件验证
+                            header = f.read(4)
+                            if header != b'PK\x03\x04':
+                                raise ValueError(f"EPUB文件头无效: {header}")
+                            
+                            # 尝试读取更多内容确保文件完整
+                            f.seek(0)
+                            content_sample = f.read(8192)
+                            if len(content_sample) < 8192 and final_size > 8192:
+                                raise ValueError("EPUB文件读取不完整")
+                        else:
+                            # TXT文件验证
+                            content_sample = f.read(4096)
+                            if len(content_sample) == 0:
+                                raise ValueError("文件内容为空")
+                        
+                        logger.info(f"最终文件就绪检查通过: {file_path} (大小: {final_size} 字节)")
+                        return
+                        
+                except (IOError, OSError, PermissionError) as e:
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"文件读取检查失败 (尝试 {attempt + 1}/{max_attempts}): {str(e)}")
+                        await asyncio.sleep(base_delay)
+                        continue
+                    else:
+                        raise ValueError(f"文件读取检查失败: {str(e)}")
+                        
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    logger.warning(f"最终文件就绪检查失败 (尝试 {attempt + 1}/{max_attempts}): {str(e)}")
+                    await asyncio.sleep(base_delay)
+                    continue
+                else:
+                    logger.error(f"最终文件就绪检查最终失败: {str(e)}")
+                    raise
+        
+        # 如果所有尝试都失败了
+        raise ValueError(f"最终文件就绪检查失败: {file_path}")
+
+    async def _cleanup_temp_files(self, download_dir: Path):
+        """清理临时文件"""
+        temp_dir = download_dir / "temp"
+        if temp_dir.exists():
+            try:
+                import shutil
+
+                shutil.rmtree(temp_dir)
+                logger.info("临时文件清理完成")
+            except Exception as e:
+                logger.warning(f"清理临时文件失败: {str(e)}")
+
+    async def _cleanup_sessions(self):
+        """清理会话池"""
+        for session in self.session_pool.values():
+            try:
+                await session.close()
+            except Exception as e:
+                logger.warning(f"关闭会话失败: {str(e)}")
+        self.session_pool.clear()
+
+    def get_download_progress(self) -> Dict[str, Any]:
+        """获取下载进度信息"""
+        progress = self.monitor.get_progress()
+        return {
+            "total_chapters": progress.total_chapters,
+            "completed_chapters": progress.completed_chapters,
+            "failed_chapters": progress.failed_chapters,
+            "progress_percentage": progress.progress_percentage,
+            "success_rate": progress.success_rate,
+            "elapsed_time": progress.elapsed_time,
+            "average_speed": progress.average_speed,
+        }
