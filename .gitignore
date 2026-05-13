@@ -43,3 +43,4 @@ downloads/
 config.local.py
 # 环境变量（含支付宝密钥，不要提交！）
 .env
+app_backup_*
