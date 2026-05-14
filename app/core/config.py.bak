@@ -83,11 +83,6 @@ class Settings(BaseSettings):
     )
     ALIPAY_SANDBOX: bool = False                      # 是否沙箱环境
 
-    # AI 收 (A402) 协议配置
-    ALIPAY_SELLER_ID: str = ""                         # 卖家支付宝 userId (2088开头)
-    ALIPAY_SELLER_NAME: str = ""                       # 卖家名称
-    ALIPAY_SERVICE_ID: str = ""                        # AI 收服务ID
-
     # 回调地址（必须是 HTTPS）
     ALIPAY_NOTIFY_URL: str = "https://slwen.cn/api/payment/callback"
     ALIPAY_RETURN_URL: str = "https://slwen.cn/api/payment/return"
